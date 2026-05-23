@@ -68,7 +68,7 @@
                 plainSegments.push(new Blob([buffer], { type: 'video/webm' }));
             }
             console.log('[Processing] Plain segments ready:', plainSegments.length, plainSegments.map((s) => s.size));
-            worker.postMessage({ segments: plainSegments, trimStart, trimEnd, cuts: cuts ?? [] });
+            worker.postMessage({ segments: [...plainSegments], trimStart, trimEnd, cuts: [...(cuts ?? [])] });
         })();
 
         return () => worker.terminate();

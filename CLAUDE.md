@@ -40,9 +40,6 @@ Configure `svelte.config.js`:
 
 ## Svelte MCP Tools
 
-The `mcp` add-on provides access to comprehensive Svelte 5 and SvelteKit
-documentation. Use these tools on every component and route:
-
 1. **`list-sections`** — call FIRST to discover relevant documentation sections
 2. **`get-documentation`** — fetch ALL sections relevant to the current task
 3. **`svelte-autofixer`** — MUST be called on every Svelte file before
@@ -227,7 +224,7 @@ Three outcomes:
 
 ```
 screenStream ──┐
-               ├──► <canvas> (rAF loop) ──► captureStream(0) + requestFrame() ──► MediaRecorder
+               ├──► <canvas> (setInterval loop) ──► captureStream(0) + requestFrame() ──► MediaRecorder
 webcamStream ──┘
 
 screenStream audio ──┐
@@ -260,13 +257,29 @@ await Promise.all([
     else webcamVideo.addEventListener('canplay', () => resolve(), { once: true })
   })
 ])
-// Only then start rAF loop and MediaRecorder
+```
+
+**setInterval compositing loop — CRITICAL:**
+
+`requestAnimationFrame` is throttled to ~1fps in background tabs. Since
+ScreenCast runs in its own tab while the user records another tab,
+`requestAnimationFrame` must NOT be used for compositing. Use `setInterval`
+instead — it fires consistently regardless of tab visibility.
+
+```ts
+// NEVER use requestAnimationFrame for the compositing loop
+// Chrome throttles rAF to ~1fps in background tabs
+let intervalId: ReturnType<typeof setInterval>
+
+intervalId = setInterval(drawFrame, 1000 / 30) // 30fps, fires in background
+mediaRecorder.start(500)
 ```
 
 **Manual frame capture — CRITICAL:**
 
 ```ts
 // Use captureStream(0) — NOT captureStream(30)
+// Chrome does not reliably auto-capture canvas frames
 const canvasStream = canvas.captureStream(0)
 let canvasCaptureTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
 
@@ -284,9 +297,8 @@ function drawFrame() {
   }
 
   // MUST call requestFrame() explicitly every tick
+  // DO NOT call setInterval or requestAnimationFrame here — setInterval handles scheduling
   canvasCaptureTrack?.requestFrame()
-
-  rafId = requestAnimationFrame(drawFrame)
 }
 ```
 
@@ -321,35 +333,34 @@ mediaRecorder.start(500) // 500ms timeslice
 **WebM duration fix:**
 
 ```ts
-// Record start time
 const recordingStartTime = Date.now()
 
 // In onstop handler:
 const durationMs = Date.now() - recordingStartTime
 const rawBlob = new Blob(chunks, { type: mimeType })
 const fixedBlob = await fixWebmDuration(rawBlob, durationMs)
-// Return fixedBlob — never the raw blob
+// Always return fixedBlob — never the raw blob
 ```
 
 **Cleanup — MUST call track.stop() not pause():**
 
 ```ts
+clearInterval(intervalId)        // NOT cancelAnimationFrame
 screenStream.getTracks().forEach(t => t.stop())
 webcamStream?.getTracks().forEach(t => t.stop())
 screenVideo.srcObject = null
 webcamVideo.srcObject = null
-cancelAnimationFrame(rafId)
 audioCtx.close()
 ```
 
-### Bubble position coordinates (20px margin)
+**Bubble position coordinates (20px margin):**
 
 ```ts
 type BubblePosition = 'tl' | 'tr' | 'bl' | 'br' | 'tc' | 'rc' | 'bc' | 'lc'
 
 function getBubbleCoords(pos: BubblePosition, w: number, h: number, size: number) {
   const m = 20
-  const coords = {
+  return {
     tl: { x: m, y: m },
     tr: { x: w - size - m, y: m },
     bl: { x: m, y: h - size - m },
@@ -358,12 +369,11 @@ function getBubbleCoords(pos: BubblePosition, w: number, h: number, size: number
     bc: { x: (w - size) / 2, y: h - size - m },
     lc: { x: m, y: (h - size) / 2 },
     rc: { x: w - size - m, y: (h - size) / 2 },
-  }
-  return coords[pos]
+  }[pos]
 }
 ```
 
-### RecorderOptions
+**RecorderOptions:**
 
 ```ts
 export interface RecorderOptions {
@@ -384,8 +394,8 @@ outside.
 - **Top bar**: "ScreenCast" | Shortcuts · Theme toggle | `● REC · mm:ss` badge
 - **Bottom toolbar**: Mic combo | Cam combo | [spacer] | Stop
 - `document.title` updated each tick: `● REC 00:42 | ScreenCast`
-- `document.title` reset to `ScreenCast` on stop — cleared in both Stop handler
-  AND `onDestroy`
+- `document.title` reset to `ScreenCast` on stop — in Stop handler AND
+  `onDestroy`
 - Timer `setInterval` stored and cleared on stop
 
 ## Section 7 — Review.svelte
@@ -412,8 +422,8 @@ Overlay on Setup preview area — not full screen.
 
 ### Timeline thumbnail generation
 
-Runs on main thread (not a worker — `HTMLVideoElement` not available in
-Workers). Uses a hidden `<video>` element separate from the main player:
+Runs on main thread — `HTMLVideoElement` not available in Web Workers. Uses a
+hidden `<video>` element separate from the main player:
 
 ```ts
 async function generateThumbnails(
@@ -448,7 +458,7 @@ async function generateThumbnails(
 - Excluded regions: dark overlay
 - Timestamp labels at even intervals
 
-### Keyboard shortcuts (Editor only — app has focus)
+### Keyboard shortcuts (Editor only)
 
 - `Space`: play/pause
 - `←` / `→`: ±5s
@@ -461,34 +471,6 @@ Left: Back to Review | Centre: final length | Right: Export & Download
 
 ## Section 9 — Processing.svelte
 
-### Known issue
-
-Export currently fails with `DataCloneError` when posting segments to the FFmpeg
-worker. The `segments` array is a Svelte 5 reactive proxy — must be fully
-dereferenced before `postMessage`.
-
-### Required fix (not yet resolved)
-
-```ts
-// In Processing.svelte — break out of Svelte reactivity before postMessage
-const plainSegments: Blob[] = []
-for (const s of segments) {
-  const buffer = await s.arrayBuffer()
-  plainSegments.push(new Blob([buffer], { type: 'video/webm' }))
-}
-worker.postMessage({ segments: plainSegments, trimStart, trimEnd, cuts: cuts ?? [] })
-```
-
-Must be inside an async IIFE within `$effect`:
-
-```ts
-$effect(() => {
-  (async () => {
-    // ... conversion and postMessage ...
-  })()
-})
-```
-
 ### FFmpeg worker (ffmpegWorker.ts)
 
 - Instantiated with Vite syntax:
@@ -498,6 +480,33 @@ $effect(() => {
 - Posts progress: `{ type: 'progress', percent: number }`
 - Posts completion: `{ type: 'done', blob: Blob }`
 - Posts errors: `{ type: 'error', message: string }`
+
+### Passing segments to worker — CRITICAL
+
+`segments` is a Svelte 5 reactive proxy. Must be fully dereferenced before
+`postMessage` or `DataCloneError` will be thrown. Use `arrayBuffer()` to read
+raw bytes AND spread into a fresh literal array:
+
+```ts
+$effect(() => {
+  (async () => {
+    // Step 1: read raw bytes to escape Svelte reactivity
+    const plainSegments: Blob[] = []
+    for (const s of segments) {
+      const buffer = await s.arrayBuffer()
+      plainSegments.push(new Blob([buffer], { type: 'video/webm' }))
+    }
+
+    // Step 2: spread into fresh literal array at point of postMessage
+    worker.postMessage({
+      segments: [...plainSegments],
+      trimStart,
+      trimEnd,
+      cuts: [...(cuts ?? [])]
+    })
+  })()
+})
+```
 
 ### ffmpegConverter.ts
 
@@ -518,8 +527,7 @@ $effect(() => {
 
 ## Section 11 — ShortcutsPanel.svelte
 
-shadcn `Dialog`. Keyboard shortcuts only for Editor and general nav — recording
-shortcuts not viable when tab loses focus.
+shadcn `Dialog`. Editor and general nav shortcuts only.
 
 **Editor** | Key | Action | |---|---| | `Space` | Play / pause | | `←` / `→` |
 Step ±5s | | `C` | Add cut at playhead | | `⌘E` | Export & download |
@@ -572,29 +580,29 @@ export const deviceStore = {
 
 ## Critical Implementation Notes
 
+- **`setInterval` not `requestAnimationFrame`** — Chrome throttles rAF to ~1fps
+  in background tabs. The compositing loop MUST use
+  `setInterval(drawFrame, 1000 / 30)`. This is the single most important
+  implementation detail in the project
 - **`captureStream(0)` + `requestFrame()`** — NEVER use `captureStream(30)`.
   Chrome does not reliably auto-capture canvas frames. Must call
-  `canvasCaptureTrack.requestFrame()` at the end of every rAF tick
-- **Wait for `readyState >= 2`** on both video elements before starting rAF loop
-  and MediaRecorder — starting too early produces blank webcam frames
-- **`fix-webm-duration`** — always apply with measured `durationMs`
-  (`Date.now()` delta between start and stop). The duration header is always
-  missing from MediaRecorder output
+  `canvasCaptureTrack.requestFrame()` at the end of every interval tick
+- **Wait for `readyState >= 2`** on both video elements before starting the
+  interval and MediaRecorder
+- **`fix-webm-duration`** — always apply with measured `durationMs`. Duration
+  header is always missing from MediaRecorder output
 - **Track teardown** — always call `track.stop()` on every `MediaStreamTrack`.
-  Never just `videoElement.pause()`. Pausing does not release the track and
-  Chrome keeps showing the sharing indicator
+  Never `videoElement.pause()`. Pausing does not release the track
 - **Segments postMessage** — `segments` is a Svelte 5 reactive proxy. Must
-  convert via `arrayBuffer()` to plain `Blob` before `postMessage` or
-  DataCloneError will be thrown
-- **Thumbnail generation** — runs on main thread with async yields between
-  frames. `HTMLVideoElement` is not available in Web Workers
-- **FFmpeg worker** — must use Vite Web Worker syntax:
+  convert via `arrayBuffer()` to plain `Blob` AND spread into a fresh literal
+  array `[...plainSegments]` before `postMessage`
+- **Thumbnail generation** — main thread only with async yields.
+  `HTMLVideoElement` not available in Web Workers
+- **FFmpeg worker** — Vite syntax:
   `new Worker(new URL('../ffmpegWorker.ts', import.meta.url), { type: 'module' })`
 - **`@ffmpeg/core`** not `@ffmpeg/core-mt` — avoids SharedArrayBuffer/COOP/COEP
-  requirements on GitHub Pages
-- **Auto-start** applies to tab sharing only (`displaySurface === 'browser'`)
-- **`document.title`** must be reset in both the Stop handler and `onDestroy` as
-  a safety net
+  on GitHub Pages
+- **Auto-start** — tab sharing only (`displaySurface === 'browser'`)
+- **`document.title`** — reset in Stop handler AND `onDestroy`
 - **No custom Tailwind theme** — vanilla shadcn only
-- **Keyboard shortcuts** — Editor and general nav only. Recording shortcuts not
-  viable when tab loses focus during capture
+- **Keyboard shortcuts** — Editor and general nav only
