@@ -318,6 +318,16 @@ export function stop(): Promise<Blob> {
             _intervalId = null;
         }
         console.log('[Recorder] Compositing interval cleared');
+        // Phase 1: stop stream tracks immediately to release browser sharing indicator
+        if (_screenStream) {
+            _screenStream.getTracks().forEach((t) => t.stop());
+            _screenStream = null;
+        }
+        if (_userStream) {
+            _userStream.getTracks().forEach((t) => t.stop());
+            _userStream = null;
+        }
+        console.log('[Recorder] Tracks stopped — sharing indicator released');
         _recorder.onstop = async () => {
             console.log(
                 '[Recorder] MediaRecorder stopped — building blob from',

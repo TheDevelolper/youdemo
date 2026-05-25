@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { Button } from '$lib/components/ui/button/index.js';
-    import { CheckCircle2 } from 'lucide-svelte';
+    import { CircleCheck } from 'lucide-svelte';
 
     interface Props {
         videoBlob?: Blob | null;
@@ -24,7 +24,7 @@
 </script>
 
 <div class="flex h-full flex-col items-center justify-center gap-6 p-8">
-    <CheckCircle2 class="size-12 text-green-500" />
+    <CircleCheck class="size-12 text-green-500" />
     <div class="text-center">
         <p class="text-base font-medium">Download started</p>
         <p class="mt-1 text-sm text-muted-foreground">Your recording is saving as a .mp4 file</p>

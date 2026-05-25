@@ -2,7 +2,7 @@
     import { onMount } from 'svelte';
     import * as Alert from '$lib/components/ui/alert/index.js';
     import { Button } from '$lib/components/ui/button/index.js';
-    import { CheckCircle2, AlertTriangle, XCircle } from 'lucide-svelte';
+    import { CircleCheck, TriangleAlert, CircleX } from 'lucide-svelte';
 
     let { onpass }: { onpass: () => void } = $props();
 
@@ -31,7 +31,7 @@
         <div class="w-full max-w-md space-y-4">
             {#if !criticalPass}
                 <Alert.Root variant="destructive">
-                    <XCircle class="size-4" />
+                    <CircleX class="size-4" />
                     <Alert.Title>Browser not supported</Alert.Title>
                     <Alert.Description>
                         Required screen capture APIs are missing. Please use Chrome, Edge, or Arc.
@@ -39,7 +39,7 @@
                 </Alert.Root>
             {:else}
                 <Alert.Root class="border-amber-500/40 bg-amber-50/5 [&>svg]:text-amber-500">
-                    <AlertTriangle class="size-4" />
+                    <TriangleAlert class="size-4" />
                     <Alert.Title class="text-amber-700 dark:text-amber-400"
                         >Limited support</Alert.Title
                     >
@@ -54,11 +54,11 @@
                 {#each checks as check (check.label)}
                     <li class="flex items-center gap-3 px-4 py-3">
                         {#if check.ok}
-                            <CheckCircle2 class="size-4 shrink-0 text-green-500" />
+                            <CircleCheck class="size-4 shrink-0 text-green-500" />
                         {:else if check.critical}
-                            <XCircle class="size-4 shrink-0 text-destructive" />
+                            <CircleX class="size-4 shrink-0 text-destructive" />
                         {:else}
-                            <AlertTriangle class="size-4 shrink-0 text-amber-500" />
+                            <TriangleAlert class="size-4 shrink-0 text-amber-500" />
                         {/if}
                         <span class="text-sm">{check.label}</span>
                         {#if !check.critical}

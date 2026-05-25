@@ -139,16 +139,38 @@ check → setup → countdown → recording → review → editor → processing
 check:      pass → setup | fail → stays (shows error)
 setup:      Start Recording → countdown
 countdown:  complete → recording
-recording:  Stop → review | Stream ended → setup (empty state)
-review:     Resume → countdown | Edit & Export → editor | Discard → setup (immediate)
+recording:  Stop → release screen stream → review
+            Stream ended by user → full reset → setup (empty state)
+review:     Resume → screen picker → countdown → recording (new segment)
+            Edit & Export → editor
+            Discard → full reset → setup (empty state)
 editor:     Export & Download → processing | Back to Review → review
 processing: complete → done
-done:       New Recording → setup | Back to Editor → editor
+done:       New Recording → full reset → setup (empty state)
+            Back to Editor → editor
 ```
 
 ```ts
 type AppState = 'check' | 'setup' | 'countdown' | 'recording' | 'review' | 'editor' | 'processing' | 'done'
 ```
+
+### Full reset behaviour
+
+A full reset clears all transient recording state and returns to a fresh Setup
+screen. What is cleared vs preserved:
+
+**Cleared on full reset:**
+
+- `screenStream` → `null`
+- All recording blobs / segments
+- Webcam bubble position → default (top-right)
+- Any cut regions or trim state
+
+**Preserved on full reset (from `localStorage`):**
+
+- Selected mic device + mute status
+- Selected cam device + cam enabled status
+- Theme preference (dark/light)
 
 ## Section 1 — BrowserCheck.svelte
 
@@ -186,7 +208,8 @@ Three outcomes:
 ### Stream ended
 
 - Listen for `ended` on screen video track
-- Return to Setup empty state — never show black preview
+- Trigger full reset → return to Setup empty state
+- Never show black preview
 
 ## Section 3 — WebcamBubble.svelte
 
@@ -208,6 +231,8 @@ Three outcomes:
 - Wrap entire button in shadcn `Tooltip` showing selected device name
 - Fallback tooltip: `"Default microphone"` / `"Default camera"`
 - Muted/Off state: shadcn `destructive` variant + `MicOff` / `VideoOff` icon
+- Mute status and device selection persisted to `localStorage` via
+  `deviceStore.ts`
 
 ## Section 5 — Countdown.svelte
 
@@ -219,6 +244,13 @@ Three outcomes:
 - On complete: transition to `recording`
 
 ## Section 6 — Recording.svelte + recorder.ts
+
+### Stream release on stop
+
+When the user clicks Stop, the screen stream tracks are stopped immediately —
+before transitioning to Review. This releases the browser's sharing indicator
+(the "Stop sharing" bar) at the moment the user stops, not after navigating
+away.
 
 ### Canvas compositing pipeline (recorder.ts)
 
@@ -263,12 +295,10 @@ await Promise.all([
 
 `requestAnimationFrame` is throttled to ~1fps in background tabs. Since
 ScreenCast runs in its own tab while the user records another tab,
-`requestAnimationFrame` must NOT be used for compositing. Use `setInterval`
-instead — it fires consistently regardless of tab visibility.
+`requestAnimationFrame` must NOT be used. Use `setInterval` instead — it fires
+consistently regardless of tab visibility.
 
 ```ts
-// NEVER use requestAnimationFrame for the compositing loop
-// Chrome throttles rAF to ~1fps in background tabs
 let intervalId: ReturnType<typeof setInterval>
 
 intervalId = setInterval(drawFrame, 1000 / 30) // 30fps, fires in background
@@ -279,7 +309,6 @@ mediaRecorder.start(500)
 
 ```ts
 // Use captureStream(0) — NOT captureStream(30)
-// Chrome does not reliably auto-capture canvas frames
 const canvasStream = canvas.captureStream(0)
 let canvasCaptureTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
 
@@ -296,8 +325,6 @@ function drawFrame() {
     ctx.restore()
   }
 
-  // MUST call requestFrame() explicitly every tick
-  // DO NOT call setInterval or requestAnimationFrame here — setInterval handles scheduling
   canvasCaptureTrack?.requestFrame()
 }
 ```
@@ -327,7 +354,7 @@ mediaRecorder = new MediaRecorder(compositeStream, {
   audioBitsPerSecond: 128_000
 })
 
-mediaRecorder.start(500) // 500ms timeslice
+mediaRecorder.start(500)
 ```
 
 **WebM duration fix:**
@@ -339,14 +366,13 @@ const recordingStartTime = Date.now()
 const durationMs = Date.now() - recordingStartTime
 const rawBlob = new Blob(chunks, { type: mimeType })
 const fixedBlob = await fixWebmDuration(rawBlob, durationMs)
-// Always return fixedBlob — never the raw blob
 ```
 
-**Cleanup — MUST call track.stop() not pause():**
+**Cleanup — release tracks immediately on stop:**
 
 ```ts
-clearInterval(intervalId)        // NOT cancelAnimationFrame
-screenStream.getTracks().forEach(t => t.stop())
+clearInterval(intervalId)
+screenStream.getTracks().forEach(t => t.stop())  // releases sharing indicator
 webcamStream?.getTracks().forEach(t => t.stop())
 screenVideo.srcObject = null
 webcamVideo.srcObject = null
@@ -373,22 +399,6 @@ function getBubbleCoords(pos: BubblePosition, w: number, h: number, size: number
 }
 ```
 
-**RecorderOptions:**
-
-```ts
-export interface RecorderOptions {
-  screenStream: MediaStream
-  webcamDeviceId: string | null
-  micDeviceId: string | null
-  bubblePosition: BubblePosition
-  micMuted: boolean
-  camEnabled: boolean
-}
-```
-
-`getUserMedia` for webcam + mic called inside `recorder.ts` `start()` — not
-outside.
-
 ### Recording UI
 
 - **Top bar**: "ScreenCast" | Shortcuts · Theme toggle | `● REC · mm:ss` badge
@@ -406,11 +416,19 @@ Overlay on Setup preview area — not full screen.
 - Three fully opaque cards tiled horizontally over video
 - Meta pills: duration · mic status · cam status
 
-| Card          | Style                | Action                                |
-| ------------- | -------------------- | ------------------------------------- |
-| Resume        | Default shadcn       | → countdown → recording (new segment) |
-| Edit & Export | Default shadcn       | → editor                              |
-| Discard       | shadcn `destructive` | → setup, no confirmation              |
+| Card          | Style                | Action                                                |
+| ------------- | -------------------- | ----------------------------------------------------- |
+| Resume        | Default shadcn       | → screen picker → countdown → recording (new segment) |
+| Edit & Export | Default shadcn       | → editor                                              |
+| Discard       | shadcn `destructive` | → full reset → setup (empty state)                    |
+
+### Resume flow
+
+1. Show screen picker (call `getDisplayMedia` again — user reconfirms what to
+   record)
+2. On success → countdown → recording (new segment appended)
+3. The new `screenStream` replaces the previous one
+4. Previous recording segments are preserved for stitching at export
 
 ## Section 8 — Editor.svelte
 
@@ -440,7 +458,7 @@ async function generateThumbnails(
     canvas.height = 90
     canvas.getContext('2d')!.drawImage(videoEl, 0, 0, 160, 90)
     onThumbnail(i, canvas.toDataURL('image/jpeg', 0.7))
-    await new Promise(resolve => setTimeout(resolve, 0)) // yield to browser
+    await new Promise(resolve => setTimeout(resolve, 0))
   }
 }
 ```
@@ -484,20 +502,17 @@ Left: Back to Review | Centre: final length | Right: Export & Download
 ### Passing segments to worker — CRITICAL
 
 `segments` is a Svelte 5 reactive proxy. Must be fully dereferenced before
-`postMessage` or `DataCloneError` will be thrown. Use `arrayBuffer()` to read
-raw bytes AND spread into a fresh literal array:
+`postMessage`:
 
 ```ts
 $effect(() => {
   (async () => {
-    // Step 1: read raw bytes to escape Svelte reactivity
     const plainSegments: Blob[] = []
     for (const s of segments) {
       const buffer = await s.arrayBuffer()
       plainSegments.push(new Blob([buffer], { type: 'video/webm' }))
     }
 
-    // Step 2: spread into fresh literal array at point of postMessage
     worker.postMessage({
       segments: [...plainSegments],
       trimStart,
@@ -515,7 +530,7 @@ $effect(() => {
 - Stitch segments, apply trim + cuts via `filter_complex`
 - VP9 WebM → MP4 via libx264:
     ```
-    ffmpeg -i input.webm -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k output.mp4
+    ffmpeg -i input.webm -c:v libx264 -preset ultrafast -crf 23 -c:a aac -movflags +faststart output.mp4
     ```
 - On complete → auto-trigger `<a download>` → transition to `done`
 
@@ -523,7 +538,8 @@ $effect(() => {
 
 - Download auto-triggers on arrival
 - Filename: `screen-recording-YYYY-MM-DD.mp4`
-- Buttons: Back to Editor | New Recording
+- **New Recording** → full reset → setup (empty state, devices remembered)
+- **Back to Editor** → editor
 
 ## Section 11 — ShortcutsPanel.svelte
 
@@ -564,10 +580,15 @@ export interface ExportOptions {
 
 ## deviceStore.ts
 
+Persisted to `localStorage`. Survives full reset — device preferences and mute
+statuses are always remembered across sessions.
+
 ```ts
 export const deviceStore = {
   webcamDeviceId: $state<string | null>(null),
   micDeviceId: $state<string | null>(null),
+  micMuted: $state<boolean>(false),
+  camEnabled: $state<boolean>(true),
 }
 ```
 
@@ -585,19 +606,25 @@ export const deviceStore = {
   `setInterval(drawFrame, 1000 / 30)`. This is the single most important
   implementation detail in the project
 - **`captureStream(0)` + `requestFrame()`** — NEVER use `captureStream(30)`.
-  Chrome does not reliably auto-capture canvas frames. Must call
-  `canvasCaptureTrack.requestFrame()` at the end of every interval tick
+  Must call `canvasCaptureTrack.requestFrame()` at the end of every interval
+  tick
 - **Wait for `readyState >= 2`** on both video elements before starting the
   interval and MediaRecorder
-- **`fix-webm-duration`** — always apply with measured `durationMs`. Duration
-  header is always missing from MediaRecorder output
+- **`fix-webm-duration`** — always apply with measured `durationMs`
 - **Track teardown** — always call `track.stop()` on every `MediaStreamTrack`.
-  Never `videoElement.pause()`. Pausing does not release the track
-- **Segments postMessage** — `segments` is a Svelte 5 reactive proxy. Must
-  convert via `arrayBuffer()` to plain `Blob` AND spread into a fresh literal
-  array `[...plainSegments]` before `postMessage`
-- **Thumbnail generation** — main thread only with async yields.
-  `HTMLVideoElement` not available in Web Workers
+  Call this on Stop, not just on cleanup
+- **Stream release on Stop** — screen tracks must be stopped immediately when
+  the user clicks Stop, before transitioning to Review. This releases the
+  browser sharing indicator immediately
+- **Full reset** — clears screenStream, blobs, bubble position. Preserves
+  deviceStore values (mic device, cam device, mute status, cam enabled)
+- **Resume** — calls `getDisplayMedia` again to reconfirm what to record before
+  countdown. Previous segments preserved
+- **Discard and New Recording** — both trigger full reset. Device preferences
+  remembered
+- **Segments postMessage** — convert via `arrayBuffer()` AND spread into fresh
+  literal array `[...plainSegments]`
+- **Thumbnail generation** — main thread only with async yields
 - **FFmpeg worker** — Vite syntax:
   `new Worker(new URL('../ffmpegWorker.ts', import.meta.url), { type: 'module' })`
 - **`@ffmpeg/core`** not `@ffmpeg/core-mt` — avoids SharedArrayBuffer/COOP/COEP

@@ -85,8 +85,46 @@
         console.log('[Recording] Transitioning to review state');
     }
 
-    function resumeRecording() {
-        appState = 'countdown';
+    function resetToSetup() {
+        if (screenStream) {
+            screenStream.getTracks().forEach((t) => t.stop());
+        }
+        screenStream = null;
+        segments = [];
+        bubblePosition = 'tr';
+        if (reviewVideoUrl) URL.revokeObjectURL(reviewVideoUrl);
+        reviewVideoUrl = null;
+        if (editorVideoUrl) URL.revokeObjectURL(editorVideoUrl);
+        editorVideoUrl = null;
+        outputBlob = null;
+        totalElapsedSec = 0;
+        exportTrimStart = 0;
+        exportTrimEnd = 0;
+        exportCuts = [];
+        appState = 'setup';
+        document.title = 'ScreenCast';
+        console.log('[App] Full reset to setup — state cleared, devices preserved');
+    }
+
+    async function handleResume() {
+        try {
+            console.log('[Review] Resume clicked — showing screen picker');
+            const newStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: true
+            });
+            console.log('[Review] Screen picker confirmed — updating stream and starting countdown');
+            if (screenStream) {
+                screenStream.getTracks().forEach((t) => t.stop());
+            }
+            screenStream = newStream;
+            newStream.getVideoTracks()[0].addEventListener('ended', () => {
+                handleStreamEnded();
+            });
+            appState = 'countdown';
+        } catch {
+            console.log('[Review] Screen picker cancelled — staying on review');
+        }
     }
 
     function goToEditor() {
@@ -121,25 +159,11 @@
     }
 
     function newRecording() {
-        if (reviewVideoUrl) URL.revokeObjectURL(reviewVideoUrl);
-        if (editorVideoUrl) URL.revokeObjectURL(editorVideoUrl);
-        reviewVideoUrl = null;
-        editorVideoUrl = null;
-        outputBlob = null;
-        segments = [];
-        totalElapsedSec = 0;
-        exportTrimStart = 0;
-        exportTrimEnd = 0;
-        exportCuts = [];
-        appState = 'setup';
+        resetToSetup();
     }
 
     function discard() {
-        if (reviewVideoUrl) URL.revokeObjectURL(reviewVideoUrl);
-        reviewVideoUrl = null;
-        segments = [];
-        totalElapsedSec = 0;
-        appState = 'setup';
+        resetToSetup();
     }
 
     async function handleStreamEnded() {
@@ -199,7 +223,7 @@
             duration={totalElapsedSec}
             micEnabled={!micMuted}
             {camEnabled}
-            onresume={resumeRecording}
+            onresume={handleResume}
             onedit={goToEditor}
             ondiscard={discard}
         />
