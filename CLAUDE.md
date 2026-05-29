@@ -1,4 +1,4 @@
-# YourDemo — Project Spec
+# YouDemo — Project Spec
 
 A browser-only screen + webcam recorder, deployable to GitHub Pages. No backend,
 no SSR, no routing library.
@@ -116,10 +116,10 @@ Never write raw CSS when a Tailwind class exists. Only acceptable exceptions:
 
 ## Branding
 
-- **Project name**: YourDemo
+- **Project name**: YouDemo
 - **Top bar logo**: `MonitorPlay` icon (lucide-svelte) in `text-indigo-500` +
-  "YourDemo" text
-- **Tab title**: `YourDemo` (default), updated during countdown and recording
+  "YouDemo" text
+- **Tab title**: `YouDemo` (default), updated during countdown and recording
 - **Download filename**: `yourdemo-YYYY-MM-DD.webm`
 
 ## Theming
@@ -224,8 +224,7 @@ Use shadcn `Empty` component for the error/warning states.
 
 ## Section 2 — Setup.svelte
 
-- **Top bar**: `MonitorPlay` icon + "YourDemo" text (left) | Theme toggle
-  (right)
+- **Top bar**: `MonitorPlay` icon + "YouDemo" text (left) | Theme toggle (right)
 - **Preview area**: live screen stream or shadcn `Empty` component empty state
 - **Empty state icon**: `MonitorSmartphone` or similar, 2x size, uses shadcn
   `Empty`
@@ -262,7 +261,7 @@ Use shadcn `Empty` component for the error/warning states.
 - Circular progress ring in indigo
 - Card flip animation between counts
 - Audio beep via Web Audio API
-- `document.title`: `3… | YourDemo` etc.
+- `document.title`: `3… | YouDemo` etc.
 
 ## Section 6 — Recording.svelte + recorder.ts
 
@@ -316,9 +315,9 @@ audioCtx.close()
 
 ### Recording UI
 
-- **Top bar**: MonitorPlay + YourDemo | Theme toggle | `● REC · mm:ss` badge
+- **Top bar**: MonitorPlay + YouDemo | Theme toggle | `● REC · mm:ss` badge
 - **Bottom toolbar**: Mic combo | Cam combo | [spacer] | Stop
-- `document.title`: `● REC 00:42 | YourDemo`
+- `document.title`: `● REC 00:42 | YouDemo`
 - Reset title on stop and `onDestroy`
 
 ## Section 7 — Review.svelte
@@ -499,9 +498,7 @@ Shown when an unhandled error occurs anywhere in the app.
         <Button variant="outline" onclick={copyErrorToClipboard}>
             <Copy class="mr-2 h-4 w-4" /> Copy error
         </Button>
-        <Button onclick={() => window.location.reload()}>
-            Reload YourDemo
-        </Button>
+        <Button onclick={() => window.location.reload()}>Reload YouDemo</Button>
     </div>
 </div>
 ```
@@ -576,4 +573,4 @@ export const deviceStore = {
   destructive intent
 - **Click video** — toggles play/pause with YouTube-style icon flash in indigo
 - **Error screen** — Skull icon + error message + Reload + Copy error buttons
-- **Branding** — YourDemo, MonitorPlay icon, `yourdemo-YYYY-MM-DD.webm` filename
+- **Branding** — YouDemo, MonitorPlay icon, `yourdemo-YYYY-MM-DD.webm` filename

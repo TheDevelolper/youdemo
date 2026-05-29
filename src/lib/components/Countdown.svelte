@@ -31,16 +31,16 @@
     }
 
     onMount(() => {
-        document.title = '3… | YourDemo';
+        document.title = '3… | YouDemo';
         playBeep();
         const t1 = setTimeout(() => {
             count = 2;
-            document.title = '2… | YourDemo';
+            document.title = '2… | YouDemo';
             playBeep();
         }, 1000);
         const t2 = setTimeout(() => {
             count = 1;
-            document.title = '1… | YourDemo';
+            document.title = '1… | YouDemo';
             playBeep();
         }, 2000);
         const t3 = setTimeout(oncomplete, 3000);
@@ -48,7 +48,7 @@
             clearTimeout(t1);
             clearTimeout(t2);
             clearTimeout(t3);
-            document.title = 'YourDemo';
+            document.title = 'YouDemo';
         };
     });
 

@@ -31,7 +31,7 @@
         <header class="flex h-14 items-center justify-between border-b px-4">
             <span class="flex items-center text-sm font-semibold tracking-wide">
                 <MonitorPlay class="mr-2 text-indigo-500" size={20} />
-                YourDemo
+                YouDemo
             </span>
             <div class="flex items-center gap-1">
                 <Button

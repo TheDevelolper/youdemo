@@ -18,7 +18,7 @@
         const a = document.createElement('a');
         a.href = url;
         const date = new Date().toISOString().slice(0, 10);
-        a.download = `yourdemo-${date}.webm`;
+        a.download = `youdemo-${date}.webm`;
         a.click();
         return () => URL.revokeObjectURL(url);
     });

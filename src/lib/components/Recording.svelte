@@ -52,14 +52,14 @@
     );
 
     onMount(async () => {
-        document.title = '● REC 00:00 | YourDemo';
+        document.title = '● REC 00:00 | YouDemo';
         timerInterval = setInterval(() => {
             elapsed += 1;
             const mm = Math.floor(elapsed / 60)
                 .toString()
                 .padStart(2, '0');
             const ss = (elapsed % 60).toString().padStart(2, '0');
-            document.title = `● REC ${mm}:${ss} | YourDemo`;
+            document.title = `● REC ${mm}:${ss} | YouDemo`;
         }, 1000);
         const devices = await navigator.mediaDevices
             .enumerateDevices()
@@ -78,7 +78,7 @@
 
     onDestroy(() => {
         clearInterval(timerInterval);
-        document.title = 'YourDemo';
+        document.title = 'YouDemo';
     });
 </script>
 
@@ -211,7 +211,7 @@
             variant="destructive"
             onclick={() => {
                 clearInterval(timerInterval);
-                document.title = 'YourDemo';
+                document.title = 'YouDemo';
                 onstop();
             }}
         >

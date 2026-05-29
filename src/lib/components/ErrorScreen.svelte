@@ -14,7 +14,7 @@
     <Skull class="text-destructive" size={128} />
     <div class="space-y-2">
         <h2 class="text-xl font-semibold">Something went wrong</h2>
-        <p class="max-w-md text-sm text-muted-foreground">YourDemo ran into an unexpected error.</p>
+        <p class="max-w-md text-sm text-muted-foreground">YouDemo ran into an unexpected error.</p>
     </div>
     <pre
         class="max-h-40 w-full max-w-lg overflow-auto rounded-md bg-muted p-4 text-left text-xs whitespace-pre-wrap">{error}</pre>
@@ -23,7 +23,7 @@
             <Copy class="mr-2 h-4 w-4" /> Copy error
         </Button>
         <Button onclick={() => window.location.reload()}>
-            <RefreshCw class="mr-2 h-4 w-4" /> Reload YourDemo
+            <RefreshCw class="mr-2 h-4 w-4" /> Reload YouDemo
         </Button>
     </div>
 </div>

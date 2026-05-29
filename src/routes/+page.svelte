@@ -115,7 +115,7 @@
         totalElapsedSec = 0;
         exportDeletedRanges = [];
         appState = 'setup';
-        document.title = 'YourDemo';
+        document.title = 'YouDemo';
     }
 
     async function handleResume() {
