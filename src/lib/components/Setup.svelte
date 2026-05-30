@@ -156,11 +156,11 @@
         {:else}
             <Empty.Root>
                 <Empty.Media>
-                    <Monitor size={128} class="text-muted-foreground" />
+                    <Monitor size={128} class="text-white" />
                 </Empty.Media>
                 <Empty.Header>
-                    <Empty.Title>No screen selected</Empty.Title>
-                    <Empty.Description
+                    <Empty.Title class="text-white">No screen selected</Empty.Title>
+                    <Empty.Description class="text-white/60"
                         >Choose a screen to preview, then hit Record</Empty.Description
                     >
                 </Empty.Header>

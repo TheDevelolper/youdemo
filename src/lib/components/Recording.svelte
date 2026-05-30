@@ -1,12 +1,11 @@
 <script lang="ts">
     import { ChevronDown, Mic, MicOff, RadioTower, Square, Video, VideoOff } from 'lucide-svelte';
-
-    import * as Empty from '$lib/components/ui/empty/index.js';
     import { onDestroy, onMount } from 'svelte';
 
     import { buttonVariants } from '$lib/components/ui/button/button.svelte';
     import { Button } from '$lib/components/ui/button/index.js';
     import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+    import * as Empty from '$lib/components/ui/empty/index.js';
     import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 
     import { deviceStore } from '$lib/deviceStore.svelte.js';
@@ -86,10 +85,10 @@
     <div class="relative flex flex-1 items-center justify-center overflow-hidden bg-black/20">
         <Empty.Root>
             <Empty.Media>
-                <RadioTower size={128} class="text-muted-foreground" />
+                <RadioTower size={128} class="text-white" />
             </Empty.Media>
             <Empty.Header>
-                <Empty.Title>Recording in progress</Empty.Title>
+                <Empty.Title class="text-white">Recording in progress</Empty.Title>
             </Empty.Header>
         </Empty.Root>
 
@@ -227,7 +226,12 @@
     }
 
     @keyframes rec-pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.3; }
+        0%,
+        100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.3;
+        }
     }
 </style>

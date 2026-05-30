@@ -36,8 +36,8 @@
                         <CircleX size={64} class="text-destructive" />
                     </Empty.Media>
                     <Empty.Header>
-                        <Empty.Title>Browser not supported</Empty.Title>
-                        <Empty.Description>
+                        <Empty.Title class="text-white">Browser not supported</Empty.Title>
+                        <Empty.Description class="text-white/60">
                             Required screen capture APIs are missing. Please use Chrome, Edge, or Arc.
                         </Empty.Description>
                     </Empty.Header>
@@ -48,8 +48,8 @@
                         <TriangleAlert size={64} class="text-amber-500" />
                     </Empty.Media>
                     <Empty.Header>
-                        <Empty.Title>Limited support</Empty.Title>
-                        <Empty.Description>
+                        <Empty.Title class="text-white">Limited support</Empty.Title>
+                        <Empty.Description class="text-white/60">
                             Update your browser for full features — camera and audio mixing are
                             unavailable.
                         </Empty.Description>

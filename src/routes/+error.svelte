@@ -13,11 +13,11 @@
 <div class="flex h-full items-center justify-center">
     <Empty.Root>
         <Empty.Media>
-            <MonitorPlay size={128} class="text-muted-foreground" />
+            <MonitorPlay size={128} class="text-white" />
         </Empty.Media>
         <Empty.Header>
-            <Empty.Title>{page.status}</Empty.Title>
-            <Empty.Description>
+            <Empty.Title class="text-white">{page.status}</Empty.Title>
+            <Empty.Description class="text-white/60">
                 {page.status === 404
                     ? `Oops! Page not found. Sorry about that...`
                     : (page.error?.message ?? 'Something went wrong')}
