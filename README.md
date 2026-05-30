@@ -3,6 +3,8 @@
 A browser-only screen and webcam recorder for making quick, personal demo videos
 — no installation, no subscription, no backend. Just open it and record.
 
+Try [YouDemo](https://mjakinowittering.github.io/youdemo/) now!
+
 ---
 
 ## Features
