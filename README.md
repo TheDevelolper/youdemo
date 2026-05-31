@@ -12,6 +12,8 @@ Try [YouDemo](https://mjakinowittering.github.io/youdemo/) now!
 - **Screen capture** — record any tab, window, or screen
 - **Webcam overlay** — picture-in-picture webcam bubble, draggable to 8
   positions
+- **Background blur** — blur the background behind your webcam in real time
+  using on-device AI segmentation; three intensity levels, nothing uploaded
 - **Audio mixing** — microphone and system audio captured together
 - **Canvas compositing** — screen and webcam combined into a single video stream
   in real time
@@ -29,9 +31,6 @@ Try [YouDemo](https://mjakinowittering.github.io/youdemo/) now!
 
 Things that would make YouDemo even better — contributions welcome.
 
-- **Webcam background blur** — blur the background behind the webcam bubble
-  using the browser's MediaStream Image Segmentation API, so your home office
-  chaos stays out of frame
 - **Undo deleted frames** — restore soft-deleted frames before export
 - **Recording resolution cap** — option to cap the recording resolution (e.g.
   1280×720) for smaller file sizes
@@ -145,5 +144,6 @@ configure Pages to serve from `/build` on `main`.
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [shadcn-svelte](https://www.shadcn-svelte.com/)
 - [FFmpeg WASM](https://ffmpegwasm.netlify.app/) — in-browser video processing
+- [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter) — on-device selfie segmentation for background blur
 - [lucide-svelte](https://lucide.dev/) — icons
 - Deployed to [GitHub Pages](https://pages.github.com/)
