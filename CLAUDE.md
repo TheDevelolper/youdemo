@@ -279,7 +279,7 @@ Restores previous on/off state when camera re-enabled.
 **Intensity:**
 
 - Default: `'default'`
-- Persisted to `localStorage` key `yourdemo-blur-intensity`
+- Persisted to `localStorage` key `ydBlurIntensity`
 - Changeable from chevron whether blur is on or off
 - `setIntensity()` updates the running processor in place — no restart
 
@@ -718,7 +718,7 @@ export const deviceStore = {
   loop. Same pattern as `recorder.ts`.
 - **Blur intensity** — three levels (light / default / heavy) controlling
   background blur radius and mask edge feathering. Persisted to `localStorage`
-  as `yourdemo-blur-intensity`. Default is `'default'`.
+  as `ydBlurIntensity`. Default is `'default'`.
 - **Blur disabled when cam muted** — `destructive` variant, disabled. Previous
   on/off state restored on unmute.
 - **Blur icon** — lucide-svelte: `UserRound` (off) and `CircleUserRound` (on).

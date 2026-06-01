@@ -26,7 +26,7 @@
 
     function getStoredIntensity(): BlurIntensity {
         try {
-            const saved = localStorage.getItem('yourdemo-blur-intensity');
+            const saved = localStorage.getItem('ydBlurIntensity');
             if (saved === 'light' || saved === 'default' || saved === 'heavy') return saved;
         } catch {
             /* unavailable */
@@ -40,7 +40,7 @@
     let blurOnBeforeCamOff = false;
 
     $effect(() => {
-        localStorage.setItem('yourdemo-blur-intensity', intensity);
+        localStorage.setItem('ydBlurIntensity', intensity);
     });
 
     // When cam is disabled, save blur state and turn off. Restore when re-enabled.
