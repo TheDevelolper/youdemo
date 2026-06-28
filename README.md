@@ -17,10 +17,13 @@ Try [YouDemo](https://mjakinowittering.github.io/youdemo/) now!
 - **Audio mixing** — microphone and system audio captured together
 - **Canvas compositing** — screen and webcam combined into a single video stream
   in real time
+- **Record in takes** — pause and resume to capture multiple clips; they're
+  stitched into one continuous video automatically
 - **Frame strip editor** — timeline of thumbnail frames, select and soft-delete
   sections before export
-- **WebM export** — fast, browser-native output ready to drop into Slack,
-  Notion, or anywhere else
+- **WebM export** — combining and trimming are rendered natively in the browser
+  (canvas + `MediaRecorder`); output is ready to drop into Slack, Notion, or
+  anywhere else
 - **No backend** — everything runs in the browser; nothing is uploaded anywhere
 - **Dark and light mode** — because it matters
 - **Deployable to GitHub Pages** — host it yourself for free
@@ -146,7 +149,8 @@ configure Pages to serve from `/build` on `main`.
 - [TypeScript](https://www.typescriptlang.org/)
 - [Tailwind CSS v4](https://tailwindcss.com/)
 - [shadcn-svelte](https://www.shadcn-svelte.com/)
-- [FFmpeg WASM](https://ffmpegwasm.netlify.app/) — in-browser video processing
+- **Canvas + `MediaRecorder`** — recording, plus combining clips and trimming,
+  are all done natively in the browser (no server, no WASM transcoder)
 - [MediaPipe Tasks Vision](https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter)
   — on-device selfie segmentation for background blur
 - [lucide-svelte](https://lucide.dev/) — icons

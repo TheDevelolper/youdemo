@@ -14,10 +14,14 @@ no SSR, no routing library.
 - **shadcn-svelte** (Svelte 5 track) — UI primitives, used as-is with no
   customisation
 - **lucide-svelte** — icons, imported individually
-- **@ffmpeg/ffmpeg**, **@ffmpeg/util**, **@ffmpeg/core** — in-browser WebM → MP4
-  conversion
+- **Native export — no ffmpeg.** Combining clips and trimming are done by
+  replaying footage through a canvas + `MediaRecorder` (`videoStitcher.ts`).
+  ffmpeg.wasm was removed from the pipeline because it crashes on Chrome's
+  MediaRecorder output (see Section 9). The `@ffmpeg/*` packages remain
+  installed but are unused and slated for removal.
 - **fix-webm-duration** — patches WebM blob duration header after MediaRecorder
-  recording
+  recording. The `[fix-webm-duration] Duration section is missing` console line
+  is benign: the library logs it and then inserts a correct Duration.
 - **`@mediapipe/tasks-vision`** — in-browser selfie segmentation for webcam
   background blur
 - **Vitest** — unit testing
@@ -172,9 +176,11 @@ src/
     +page.svelte            # Root — owns the state machine, renders active component
   lib/
     recorder.ts             # Canvas compositor, MediaRecorder, audio mixer
-    ffmpegConverter.ts      # ffmpeg.wasm — WebM output with cuts
-    ffmpegWorker.ts         # Web Worker wrapping ffmpegConverter
-    deviceStore.ts          # Svelte 5 rune-based store, persisted to localStorage
+    videoStitcher.ts        # Native export: combine segments + trim (canvas + MediaRecorder)
+    blurProcessor.ts        # MediaPipe selfie-segmentation background blur
+    deviceStore.svelte.ts   # Svelte 5 rune-based store, persisted to localStorage
+    ffmpegConverter.ts      # LEGACY/unused — kept pending removal
+    ffmpegWorker.ts         # LEGACY/unused — kept pending removal
     components/
       BrowserCheck.svelte
       BlurComboButton.svelte   # Blur toggle + intensity combo (Setup only)
@@ -195,7 +201,7 @@ Note: `ShortcutsPanel.svelte` has been removed entirely.
 ## State Machine (+page.svelte)
 
 ```
-check → setup → countdown → recording → review → editor → processing → done
+check → setup → countdown → recording → review → [stitching] → editor → processing → done
 ```
 
 Add a global error boundary — if any unhandled error occurs, transition to an
@@ -205,19 +211,38 @@ Add a global error boundary — if any unhandled error occurs, transition to an
 check:      pass → setup | fail → stays (shows error)
 setup:      Start Recording → countdown
 countdown:  complete → recording
-recording:  Stop → release screen stream → review
+recording:  Stop → capture blob → release camera → review
             Stream ended → full reset → setup
-review:     Resume → screen picker → countdown | Edit & Export → editor | Discard → full reset → setup
+review:     Resume → screen picker → re-acquire camera → countdown
+            Edit & Export → [stitching if >1 segment] → editor | Discard → full reset → setup
+stitching:  combine segments (videoStitcher) → editor   (transient; shows progress)
 editor:     Export & Download → processing | Back to Review → review
 processing: complete → done
 done:       New Recording → full reset → setup | Back to Editor → editor
 any state:  unhandled error → error screen
 ```
 
+### Combined Editor source
+
+On entering the Editor, multiple segments are combined into ONE WebM
+(`stitchSegments`, real-time) and cached as `editorBlob`; single segments are
+used as-is. The Editor's player, timeline, thumbnails, duration and cuts all run
+off this single blob, and the same blob feeds export. The cache is invalidated
+when a new segment is recorded (resume) or on full reset.
+
+### Camera lifecycle
+
+The webcam (and blur processor) are live **only** during the capture flow (setup
+preview → countdown → recording). `releaseCamera()` tears them down when a
+recording is captured (entering Review) so the camera/red-dot doesn't linger;
+`armCamera()` re-acquires on Resume (restoring blur from `ydBlurIntensity` if it
+was on). Both live in `+page.svelte`.
+
 ### Full reset
 
-**Cleared:** screenStream, blobs/segments, bubble position, deletedRanges
-**Preserved:** mic/cam device + mute/enabled status, theme
+**Cleared:** screenStream, webcam stream + blur, blobs/segments, `editorBlob`,
+bubble position, deletedRanges **Preserved:** mic/cam device + mute/enabled
+status, theme
 
 ## Section 1 — BrowserCheck.svelte
 
@@ -344,6 +369,18 @@ canvasCaptureTrack?.requestFrame(); // every tick
 ```
 
 **Wait for `readyState >= 2`** on both video elements before starting.
+
+**Opaque canvas — `getContext('2d', { alpha: false })`.** The composite is
+always fully opaque (the screen fills every frame), and an alpha channel makes
+Chrome encode VP9 with an alpha plane (`alpha_mode: 1`) that breaks downstream
+tooling.
+
+**Webcam bubble — offscreen feathered mask, not `clip()`.** The bubble is drawn
+onto a small offscreen canvas, masked to a circle with a radial-gradient
+`destination-in` (soft edge), then blitted onto the main canvas. Clipping a
+circle directly leaves a partial-coverage seam at the cardinal points (visible
+once the canvas is resolution-capped). The webcam frame is centre-cropped to a
+square so it isn't distorted (matches the preview's `object-cover`).
 
 **Codec probe:**
 
@@ -519,28 +556,47 @@ visible cells and `effectiveDuration`
 
 ## Section 9 — Processing.svelte
 
-- Progress bar: `bg-indigo-500`
-- Three-tier export:
-    - **Tier 1**: single segment, no cuts → raw blob, instant download
-    - **Tier 2**: multiple segments, no cuts → FFmpeg concat with `-c copy`
-    - **Tier 3**: cuts present → FFmpeg `filter_complex` trim+concat, VP9 output
+- Progress bar: `bg-indigo-500`, status label (`Combining recordings…` /
+  `Applying edits…` / `Done!`)
+- **Fully native export — no ffmpeg, no Web Worker.** All work happens on the
+  main thread via `videoStitcher.ts`:
+    1. `source = segments[0]` (the Editor passes a single, already-combined
+       blob; a `stitchSegments` call remains as a safety net if >1 is ever
+       passed).
+    2. No cuts → `source` is the final file.
+    3. Cuts → `renderEditedVideo(source, deletedRanges)` re-renders only the
+       kept ranges.
 
-### Passing to worker — CRITICAL
+### Why native (critical history)
 
-```ts
-worker.postMessage({
-    segments: [...plainSegments],
-    deletedRanges: [...(deletedRanges ?? [])].map((r) => ({
-        startTime: r.startTime,
-        endTime: r.endTime
-    })),
-    totalDuration: videoDuration
-});
-```
+ffmpeg.wasm could not produce a correct multi-clip / trimmed export here:
+
+- Chrome's canvas `MediaRecorder` emits **VP9 with an alpha plane**
+  (`alpha_mode: 1`); ffmpeg.wasm aborts re-encoding it with
+  `RuntimeError: memory access out of bounds` (crashes at frame 1 — not a memory
+  size issue; stripping alpha after the fact did not help).
+- `-c copy` concat of independently-recorded WebM **silently drops all but the
+  first** segment/range (mismatched params + independent timestamps).
+
+So combining and trimming are both done by **replaying footage through a
+canvas + `MediaRecorder`** (the same reliable native encoder that records). It
+is real-time (≈ the played duration) and shows progress. Cut precision is
+per-frame (better than ffmpeg `-c copy`, which snaps to sparse keyframes).
+
+`videoStitcher.ts` exports:
+
+- `stitchSegments(blobs, onProgress)` — play segments back-to-back into one
+  WebM.
+- `renderEditedVideo(source, deletedRanges, onProgress)` — play only the kept
+  ranges into one WebM.
+
+Both use an opaque canvas (`alpha: false`), `captureStream(0)` +
+`requestFrame()`, `createMediaElementSource` → destination for audio (routed
+only to the recorder, never the speakers), and `fixWebmDuration` on the result.
 
 ### Output format
 
-- Output: `.webm` (VP9)
+- Output: `.webm`
 - Filename: `yourdemo-YYYY-MM-DD.webm`
 
 ## Section 10 — Done.svelte
@@ -685,23 +741,41 @@ export const deviceStore = {
   background tabs
 - **`captureStream(0)` + `requestFrame()`** every tick
 - **Wait for `readyState >= 2`** before starting compositor
-- **`fix-webm-duration`** — always apply
+- **`fix-webm-duration`** — always apply (its "Duration section is missing" log
+  is benign — it inserts the duration)
+- **Opaque canvases** — recorder + stitcher use
+  `getContext('2d', { alpha: false })` so the WebM has no VP9 alpha plane
+  (`alpha_mode: 1`)
 - **Resolution cap** — composited canvas is scaled so its longest edge ≤ 1920px
   (`MAX_DIM` in `recorder.ts`), even dimensions. Uncapped 1440p/4K software VP9
   encoding is the main cause of renderer crashes during recording.
-- **Bitrate** — `videoBitsPerSecond: 5_000_000`, `audioBitsPerSecond: 128_000`
+- **Bitrate** — recorder `videoBitsPerSecond: 5_000_000`, stitcher `8_000_000`;
+  `audioBitsPerSecond: 128_000`
 - **Single webcam capture** — the raw webcam stream is owned by `+page.svelte`
-  (bound from `Setup`) so it survives a resume and is torn down on full reset.
-  `recorder.ts` reuses it (drawing the blurred stream when present) and only
-  acquires the **mic** via `getUserMedia` — it never opens a second camera.
+  (bound from `Setup`) so it survives a resume. `recorder.ts` reuses it (drawing
+  the blurred stream when present) and only acquires the **mic** via
+  `getUserMedia` — it never opens a second camera.
+- **Camera released when idle** — `releaseCamera()` (in `+page.svelte`) stops
+  the webcam + blur the moment a recording is captured (Review onward) so the
+  camera light/red-dot doesn't linger; `armCamera()` re-acquires on Resume
+  (restoring blur from `ydBlurIntensity`). Live only in
+  setup/countdown/recording.
 - **No debug logging in hot paths** — no per-frame/per-export `console.*`
 - **Track teardown** — `track.stop()` immediately on Stop (recorder owns the
   screen + mic streams; the raw webcam stream is owned and released by `+page`)
-- **Full reset** — clears screenStream, blobs, deletedRanges. Preserves
-  deviceStore
-- **Resume** — calls `getDisplayMedia` again before countdown
-- **Segments + deletedRanges postMessage** — escape Svelte reactivity, use
-  `.map(r => ({...}))` for objects
+- **Full reset** — clears screenStream, webcam + blur, blobs, `editorBlob`,
+  deletedRanges. Preserves deviceStore
+- **Resume** — calls `getDisplayMedia` then `armCamera()` before countdown
+- **Native export (no ffmpeg)** — combining + trimming run on the main thread
+  via `videoStitcher.ts` (`stitchSegments`, `renderEditedVideo`). ffmpeg.wasm
+  was removed because Chrome's MediaRecorder VP9-with-alpha output crashes its
+  encoder and `-c copy` concat drops segments. See Section 9.
+  `ffmpegConverter.ts`, `ffmpegWorker.ts`, the `/ffmpeg` dev middleware, the
+  `build/ffmpeg` copy and the `@ffmpeg/*` deps are now dead and slated for
+  removal.
+- **Editor source** — the Editor loads ONE combined WebM (`editorBlob`, stitched
+  on entry, cached) so its timeline/duration/thumbnails/cuts span the whole
+  recording; the same blob feeds export.
 - **FFmpeg** — trim+concat approach, WebM output, three-tier speed optimisation.
   Core (`@ffmpeg/core`) is bundled locally, not from a CDN: served from
   `node_modules` in dev via a Vite middleware and copied to `build/ffmpeg` by
