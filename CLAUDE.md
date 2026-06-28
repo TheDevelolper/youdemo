@@ -245,7 +245,13 @@ Use shadcn `Empty` component for the error/warning states.
 
 ## Section 3 — WebcamBubble.svelte
 
-- 120px default diameter (user can resize)
+- **Fixed size — no resize.** Diameter and corner padding are a fraction of the
+  frame _height_ (`BUBBLE_FRAC = 0.18`, `PAD_FRAC = 0.025`), not absolute
+  pixels. The identical fractions are used in `recorder.ts` so the Setup preview
+  and the composited recording match at any resolution.
+- Preview sizes/positions the bubble against the letterboxed video rect
+  (`object-contain`), computed from the screen `screenAspect` (width / height),
+  so it lines up with the composited frame, which has no letterbox bars.
 - Always fully circular
 - 8 snap positions: tl, tr, bl, br, tc, rc, bc, lc
 - `border-2 border-indigo-500`
@@ -680,13 +686,27 @@ export const deviceStore = {
 - **`captureStream(0)` + `requestFrame()`** every tick
 - **Wait for `readyState >= 2`** before starting compositor
 - **`fix-webm-duration`** — always apply
-- **Track teardown** — `track.stop()` immediately on Stop
+- **Resolution cap** — composited canvas is scaled so its longest edge ≤ 1920px
+  (`MAX_DIM` in `recorder.ts`), even dimensions. Uncapped 1440p/4K software VP9
+  encoding is the main cause of renderer crashes during recording.
+- **Bitrate** — `videoBitsPerSecond: 5_000_000`, `audioBitsPerSecond: 128_000`
+- **Single webcam capture** — the raw webcam stream is owned by `+page.svelte`
+  (bound from `Setup`) so it survives a resume and is torn down on full reset.
+  `recorder.ts` reuses it (drawing the blurred stream when present) and only
+  acquires the **mic** via `getUserMedia` — it never opens a second camera.
+- **No debug logging in hot paths** — no per-frame/per-export `console.*`
+- **Track teardown** — `track.stop()` immediately on Stop (recorder owns the
+  screen + mic streams; the raw webcam stream is owned and released by `+page`)
 - **Full reset** — clears screenStream, blobs, deletedRanges. Preserves
   deviceStore
 - **Resume** — calls `getDisplayMedia` again before countdown
 - **Segments + deletedRanges postMessage** — escape Svelte reactivity, use
   `.map(r => ({...}))` for objects
-- **FFmpeg** — trim+concat approach, WebM output, three-tier speed optimisation
+- **FFmpeg** — trim+concat approach, WebM output, three-tier speed optimisation.
+  Core (`@ffmpeg/core`) is bundled locally, not from a CDN: served from
+  `node_modules` in dev via a Vite middleware and copied to `build/ffmpeg` by
+  the `postbuild` script. The worker receives the same-origin `coreBaseURL` from
+  `Processing.svelte` (`${origin}${base}/ffmpeg`).
 - **Tailwind v4** — `@theme` in `app.css`
 - **No hand-written CSS** — Tailwind classes only
 - **indigo-500** — primary accent throughout
@@ -706,9 +726,11 @@ export const deviceStore = {
 - **Branding** — YouDemo, MonitorPlay icon, `yourdemo-YYYY-MM-DD.webm` filename
 - **Background blur** — MediaPipe `ImageSegmenter` with selfie segmentation
   model, bundled locally via `@mediapipe/tasks-vision`. Not fetched from CDN.
-  WASM files copied from `node_modules` to build output by
-  `vite-plugin-static-copy`. Model at
-  `static/mediapipe/models/selfie_segmenter.tflite` (244KB, committed).
+  WASM files copied from `node_modules` to build output by the `postbuild`
+  script. Model at `static/mediapipe/models/selfie_segmenter.tflite` (244KB,
+  committed). Created with `delegate: 'GPU'` and a CPU fallback. The
+  segmentation loop is busy-guarded (skips a tick while the previous pass is in
+  flight) and reuses a single `ImageData` buffer to avoid per-frame allocation.
 - **Blur pipeline** — `blurProcessor.ts` takes raw webcam stream, outputs
   processed canvas `MediaStream`. Same output consumed by `WebcamBubble`
   (preview) and `recorder.ts` (recording). What the user sees is what is

@@ -60,7 +60,11 @@
             </li>
         </ul>
 
-        <Button class="w-full bg-indigo-500 text-white hover:bg-indigo-600" onclick={dismiss}>
+        <Button
+            class="w-full bg-indigo-500 text-white hover:bg-indigo-600"
+            onclick={dismiss}
+            size="lg"
+        >
             Let's begin
         </Button>
     </Dialog.Content>

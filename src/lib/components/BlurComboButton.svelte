@@ -96,7 +96,7 @@
             <div {...props} class="flex">
                 <Button
                     variant={!camEnabled ? 'destructive' : blurOn ? 'success' : 'outline'}
-                    size="sm"
+                    size="lg"
                     class="rounded-r-none border-r-0"
                     onclick={toggleBlur}
                     disabled={!camEnabled}
@@ -117,7 +117,7 @@
                                     : blurOn
                                       ? 'success'
                                       : 'outline',
-                                size: 'sm'
+                                size: 'lg'
                             }),
                             'rounded-l-none px-2'
                         )}

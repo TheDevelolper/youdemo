@@ -59,6 +59,7 @@
                         <Button
                             class="bg-indigo-500 text-white hover:bg-indigo-600"
                             onclick={onpass}
+                            size="lg"
                         >
                             Continue anyway
                         </Button>

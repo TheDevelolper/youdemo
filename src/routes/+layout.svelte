@@ -36,7 +36,7 @@
             <div class="flex items-center gap-1">
                 <Button
                     variant="ghost"
-                    size="icon"
+                    size="icon-lg"
                     class="hover:text-indigo-500"
                     onclick={toggleTheme}
                     aria-label="Toggle theme"

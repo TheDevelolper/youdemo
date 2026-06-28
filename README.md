@@ -32,6 +32,9 @@ Try [YouDemo](https://mjakinowittering.github.io/youdemo/) now!
 Things that would make YouDemo even better — contributions welcome.
 
 - **Undo deleted frames** — restore soft-deleted frames before export
+- **Blur loading indicator** — surface progress when the on-device segmentation
+  model and WASM runtime are downloading/initialising on first blur toggle, so
+  the brief delay before blur appears is clearly communicated
 - **Recording resolution cap** — option to cap the recording resolution (e.g.
   1280×720) for smaller file sizes
 - **Quick trim** — trim-to-highlight shortcut for the most common editing

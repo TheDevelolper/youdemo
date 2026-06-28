@@ -49,6 +49,9 @@
 
     // Streams & blobs
     let screenStream = $state<MediaStream | null>(null);
+    // Raw webcam stream — owned here so it outlives Setup and feeds the recorder /
+    // blur processor across a resume, with deterministic teardown on full reset.
+    let webcamStream = $state<MediaStream | null>(null);
     let segments = $state<Blob[]>([]);
     let reviewVideoUrl = $state<string | null>(null);
     let editorVideoUrl = $state<string | null>(null);
@@ -84,7 +87,7 @@
     async function startRecording() {
         await recorderStart({
             screenStream: screenStream!,
-            webcamDeviceId: deviceStore.webcamDeviceId,
+            webcamStream,
             micDeviceId: deviceStore.micDeviceId,
             bubblePosition,
             micMuted,
@@ -96,15 +99,12 @@
     }
 
     async function stopRecording() {
-        console.log('[Recording] Calling recorder.stop()');
         const blob = await recorderStop();
-        console.log('[Recording] recorder.stop() returned — blob size:', blob.size, 'bytes');
         totalElapsedSec += Math.round((Date.now() - sessionStartMs) / 1000);
         segments = [...segments, blob];
         if (reviewVideoUrl) URL.revokeObjectURL(reviewVideoUrl);
         reviewVideoUrl = URL.createObjectURL(blob);
         appState = 'review';
-        console.log('[Recording] Transitioning to review state');
     }
 
     function resetToSetup() {
@@ -112,6 +112,10 @@
             screenStream.getTracks().forEach((t) => t.stop());
         }
         screenStream = null;
+        if (webcamStream) {
+            webcamStream.getTracks().forEach((t) => t.stop());
+        }
+        webcamStream = null;
         segments = [];
         bubblePosition = 'tr';
         blurProcessor?.destroy();
@@ -130,14 +134,10 @@
 
     async function handleResume() {
         try {
-            console.log('[Review] Resume clicked — showing screen picker');
             const newStream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
                 audio: true
             });
-            console.log(
-                '[Review] Screen picker confirmed — updating stream and starting countdown'
-            );
             if (screenStream) {
                 screenStream.getTracks().forEach((t) => t.stop());
             }
@@ -147,25 +147,15 @@
             });
             appState = 'countdown';
         } catch {
-            console.log('[Review] Screen picker cancelled — staying on review');
+            // Screen picker cancelled — stay on review
         }
     }
 
     function goToEditor() {
-        console.log('[App] Edit & Export clicked — transitioning to editor');
         if (editorVideoUrl) URL.revokeObjectURL(editorVideoUrl);
         const stitched = new Blob(segments, { type: 'video/webm' });
-        console.log(
-            '[Editor] 3. Creating object URL from',
-            segments.length,
-            'segment(s) — total blob size:',
-            stitched.size,
-            'bytes'
-        );
         editorVideoUrl = URL.createObjectURL(stitched);
-        console.log('[Editor] 4. Object URL created:', editorVideoUrl);
         appState = 'editor';
-        console.log('[App] State is now: editor');
     }
 
     function backToReview() {
@@ -196,18 +186,18 @@
     }
 
     async function handleStreamEnded() {
+        // Only meaningful while actively capturing. A stopped screen track can fire
+        // 'ended' late (e.g. as the browser tears down the capture, around export
+        // time); ignore it once we've moved on to review/editor/processing/done so
+        // it can't flash us back to setup.
+        if (appState !== 'countdown' && appState !== 'recording') return;
         try {
             await recorderStop();
         } catch {
             /* stream may already be gone */
         }
-        screenStream?.getTracks().forEach((t) => t.stop());
-        screenStream = null;
-        if (reviewVideoUrl) URL.revokeObjectURL(reviewVideoUrl);
-        reviewVideoUrl = null;
-        segments = [];
-        totalElapsedSec = 0;
-        appState = 'setup';
+        // Spec: stream ended → full reset → setup
+        resetToSetup();
     }
 
     function toggleMic() {
@@ -234,6 +224,7 @@
         {:else if appState === 'setup'}
             <Setup
                 bind:screenStream
+                bind:webcamStream
                 bind:bubblePosition
                 bind:processedStream={processedWebcamStream}
                 {micMuted}

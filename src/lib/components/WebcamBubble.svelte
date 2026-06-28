@@ -2,16 +2,26 @@
     export type BubblePosition = 'tl' | 'tr' | 'bl' | 'br' | 'tc' | 'rc' | 'bc' | 'lc';
 
     const ALL_POSITIONS: BubblePosition[] = ['tl', 'tr', 'bl', 'br', 'tc', 'rc', 'bc', 'lc'];
-    const BUBBLE = 275;
-    const PAD = 20;
+
+    // Bubble geometry as a fraction of frame height, kept identical to recorder.ts
+    // so the preview matches the composited recording at any resolution.
+    const BUBBLE_FRAC = 0.18;
+    const PAD_FRAC = 0.025;
 
     interface Props {
         position?: BubblePosition;
         stream?: MediaStream | null;
         processedStream?: MediaStream | null;
+        /** Screen frame aspect ratio (width / height). 0 → fill container. */
+        screenAspect?: number;
     }
 
-    let { position = $bindable('tr'), stream = null, processedStream = null }: Props = $props();
+    let {
+        position = $bindable('tr'),
+        stream = null,
+        processedStream = null,
+        screenAspect = 0
+    }: Props = $props();
 
     let dragging = $state(false);
     let dragLeft = $state(0);
@@ -23,26 +33,48 @@
     let grabX = 0;
     let grabY = 0;
 
+    // The letterboxed rect of the screen video inside the container (object-contain).
+    // The bubble is sized and positioned against this rect — not the raw container —
+    // so it lines up with the composited frame, which has no letterbox bars.
+    let frame = $derived.by(() => {
+        if (!cw || !ch) return { x: 0, y: 0, w: cw, h: ch };
+        if (!screenAspect) return { x: 0, y: 0, w: cw, h: ch };
+        const containerAspect = cw / ch;
+        if (screenAspect > containerAspect) {
+            const h = cw / screenAspect;
+            return { x: 0, y: (ch - h) / 2, w: cw, h };
+        }
+        const w = ch * screenAspect;
+        return { x: (cw - w) / 2, y: 0, w, h: ch };
+    });
+
+    let BUBBLE = $derived(frame.h * BUBBLE_FRAC);
+    let PAD = $derived(frame.h * PAD_FRAC);
+
     function coords(pos: BubblePosition): { x: number; y: number } {
-        const cx = cw / 2 - BUBBLE / 2;
-        const cy = ch / 2 - BUBBLE / 2;
+        const left = frame.x + PAD;
+        const right = frame.x + frame.w - BUBBLE - PAD;
+        const top = frame.y + PAD;
+        const bottom = frame.y + frame.h - BUBBLE - PAD;
+        const cx = frame.x + frame.w / 2 - BUBBLE / 2;
+        const cy = frame.y + frame.h / 2 - BUBBLE / 2;
         switch (pos) {
             case 'tl':
-                return { x: PAD, y: PAD };
+                return { x: left, y: top };
             case 'tr':
-                return { x: cw - BUBBLE - PAD, y: PAD };
+                return { x: right, y: top };
             case 'bl':
-                return { x: PAD, y: ch - BUBBLE - PAD };
+                return { x: left, y: bottom };
             case 'br':
-                return { x: cw - BUBBLE - PAD, y: ch - BUBBLE - PAD };
+                return { x: right, y: bottom };
             case 'tc':
-                return { x: cx, y: PAD };
+                return { x: cx, y: top };
             case 'rc':
-                return { x: cw - BUBBLE - PAD, y: cy };
+                return { x: right, y: cy };
             case 'bc':
-                return { x: cx, y: ch - BUBBLE - PAD };
+                return { x: cx, y: bottom };
             case 'lc':
-                return { x: PAD, y: cy };
+                return { x: left, y: cy };
         }
     }
 
@@ -95,8 +127,14 @@
     function onpointermove(e: PointerEvent) {
         if (!dragging || !containerEl) return;
         const rect = containerEl.getBoundingClientRect();
-        dragLeft = Math.max(0, Math.min(cw - BUBBLE, e.clientX - rect.left - grabX));
-        dragTop = Math.max(0, Math.min(ch - BUBBLE, e.clientY - rect.top - grabY));
+        dragLeft = Math.max(
+            frame.x,
+            Math.min(frame.x + frame.w - BUBBLE, e.clientX - rect.left - grabX)
+        );
+        dragTop = Math.max(
+            frame.y,
+            Math.min(frame.y + frame.h - BUBBLE, e.clientY - rect.top - grabY)
+        );
     }
 
     function onpointerup() {

@@ -31,9 +31,13 @@
         <p class="mt-1 text-sm text-muted-foreground">Your recording is saving as a .webm file</p>
     </div>
     <div class="flex gap-3">
-        <Button class="bg-indigo-500 text-white hover:bg-indigo-600" onclick={onbacktoeditor}
-            >Back to Editor</Button
+        <Button
+            class="bg-indigo-500 text-white hover:bg-indigo-600"
+            onclick={onbacktoeditor}
+            size="lg"
         >
-        <Button class="border-indigo-500" onclick={onnewrecording}>New Recording</Button>
+            Back to Editor
+        </Button>
+        <Button class="border-indigo-500" onclick={onnewrecording} size="lg">New Recording</Button>
     </div>
 </div>

@@ -19,10 +19,10 @@
     <pre
         class="max-h-40 w-full max-w-lg overflow-auto rounded-md bg-muted p-4 text-left text-xs whitespace-pre-wrap">{error}</pre>
     <div class="flex gap-3">
-        <Button variant="outline" onclick={copyError}>
+        <Button variant="outline" onclick={copyError} size="lg">
             <Copy class="mr-2 h-4 w-4" /> Copy error
         </Button>
-        <Button onclick={() => window.location.reload()}>
+        <Button onclick={() => window.location.reload()} size="lg">
             <RefreshCw class="mr-2 h-4 w-4" /> Reload YouDemo
         </Button>
     </div>

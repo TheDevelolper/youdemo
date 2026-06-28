@@ -332,7 +332,7 @@
     <div class="flex items-center gap-3 border-t px-4 py-2">
         <Button
             variant="ghost"
-            size="icon"
+            size="icon-lg"
             onclick={() => {
                 paused = !paused;
             }}
@@ -364,7 +364,7 @@
     <div class="flex items-center gap-2 border-t px-4 py-2">
         <Button
             variant={editMode ? 'default' : 'outline'}
-            size="sm"
+            size="lg"
             onclick={toggleEditMode}
             class={editMode ? 'border-indigo-500 bg-indigo-500 text-white hover:bg-indigo-600' : ''}
         >
@@ -372,7 +372,7 @@
             {editMode ? 'Selecting…' : 'Cut'}
         </Button>
         {#if editMode && selectedCells.size > 0}
-            <Button variant="destructive" size="sm" onclick={deleteSelectedCells}>
+            <Button variant="destructive" size="lg" onclick={deleteSelectedCells}>
                 <Trash2 class="mr-1 size-4" />
                 Delete
             </Button>
@@ -459,14 +459,15 @@
 
     <!-- Footer -->
     <div class="flex items-center border-t px-4 py-3">
-        <Button variant="ghost" size="sm" onclick={onback}>
+        <Button variant="ghost" size="lg" onclick={onback}>
             <ChevronLeft class="mr-1 size-4" />
             Back to Review
         </Button>
         <div class="flex-1"></div>
         <Button
             class="bg-indigo-500 text-white hover:bg-indigo-600"
-            onclick={() => onexport(deletedRanges, videoDuration)}>Export & Download</Button
+            onclick={() => onexport(deletedRanges, videoDuration)}
+            size="lg">Export & Download</Button
         >
     </div>
 </div>

@@ -18,6 +18,7 @@
     interface Props {
         onstart: () => void;
         screenStream?: MediaStream | null;
+        webcamStream?: MediaStream | null;
         micMuted?: boolean;
         camEnabled?: boolean;
         bubblePosition?: BubblePosition;
@@ -30,6 +31,7 @@
     let {
         onstart,
         screenStream = $bindable(null),
+        webcamStream = $bindable(null),
         micMuted = false,
         camEnabled = true,
         bubblePosition = $bindable<BubblePosition>('tr'),
@@ -43,7 +45,7 @@
     let picking = $state(false);
     let micDevices = $state<MediaDeviceInfo[]>([]);
     let camDevices = $state<MediaDeviceInfo[]>([]);
-    let webcamStream = $state<MediaStream | null>(null);
+    let screenAspect = $state(0);
 
     let micLabel = $derived(
         micDevices.find((d) => d.deviceId === deviceStore.micDeviceId)?.label ||
@@ -96,9 +98,6 @@
             deviceStore.micDeviceId = micDevices[0].deviceId;
         if (!deviceStore.webcamDeviceId && camDevices.length)
             deviceStore.webcamDeviceId = camDevices[0].deviceId;
-        return () => {
-            webcamStream?.getTracks().forEach((t) => t.stop());
-        };
     });
 
     // Handle "Stop sharing" from browser share bar during Setup
@@ -110,6 +109,7 @@
         const handleEnded = () => {
             stream.getTracks().forEach((t) => t.stop());
             screenStream = null;
+            screenAspect = 0;
         };
         track.addEventListener('ended', handleEnded);
         return () => track.removeEventListener('ended', handleEnded);
@@ -157,6 +157,10 @@
                 autoplay
                 muted
                 playsinline
+                onloadedmetadata={(e) => {
+                    const v = e.currentTarget;
+                    if (v.videoHeight) screenAspect = v.videoWidth / v.videoHeight;
+                }}
                 class="h-full w-full object-contain"
             ></video>
         {:else}
@@ -175,6 +179,7 @@
                         class="bg-indigo-500 text-white hover:bg-indigo-600"
                         onclick={pickScreen}
                         disabled={picking}
+                        size="lg"
                     >
                         {picking ? 'Requesting…' : 'Choose Screen'}
                     </Button>
@@ -186,7 +191,12 @@
         {/if}
 
         {#if camEnabled}
-            <WebcamBubble bind:position={bubblePosition} stream={webcamStream} {processedStream} />
+            <WebcamBubble
+                bind:position={bubblePosition}
+                stream={webcamStream}
+                {processedStream}
+                {screenAspect}
+            />
         {/if}
     </div>
 
@@ -197,7 +207,7 @@
                     <div {...props} class="flex">
                         <Button
                             variant={micMuted ? 'destructive' : 'outline'}
-                            size="sm"
+                            size="lg"
                             class="rounded-r-none border-r-0"
                             onclick={ontogglemic}
                             aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
@@ -213,7 +223,7 @@
                                 class={cn(
                                     buttonVariants({
                                         variant: micMuted ? 'destructive' : 'outline',
-                                        size: 'sm'
+                                        size: 'lg'
                                     }),
                                     'rounded-l-none px-2'
                                 )}
@@ -251,7 +261,7 @@
                     <div {...props} class="flex">
                         <Button
                             variant={!camEnabled ? 'destructive' : 'outline'}
-                            size="sm"
+                            size="lg"
                             class="rounded-r-none border-r-0"
                             onclick={ontogglecam}
                             aria-label={camEnabled ? 'Disable camera' : 'Enable camera'}
@@ -267,7 +277,7 @@
                                 class={cn(
                                     buttonVariants({
                                         variant: !camEnabled ? 'destructive' : 'outline',
-                                        size: 'sm'
+                                        size: 'lg'
                                     }),
                                     'rounded-l-none px-2'
                                 )}
@@ -313,7 +323,7 @@
         {#if screenStream}
             <Button
                 variant="ghost"
-                size="sm"
+                size="lg"
                 class="text-indigo-500 hover:text-indigo-600"
                 onclick={pickScreen}
                 disabled={picking}>Re-pick</Button
@@ -322,8 +332,11 @@
 
         <Button
             class="bg-indigo-500 text-white hover:bg-indigo-600"
+            disabled={!screenStream}
             onclick={onstart}
-            disabled={!screenStream}>Start Recording</Button
+            size="lg"
         >
+            Start Recording
+        </Button>
     </div>
 </div>

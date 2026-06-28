@@ -29,15 +29,25 @@ export async function createBlurProcessor(
 ): Promise<BlurProcessor> {
     const vision = await FilesetResolver.forVisionTasks(`${basePath}/mediapipe/wasm`);
 
-    const segmenter = await ImageSegmenter.createFromOptions(vision, {
-        baseOptions: {
-            modelAssetPath: `${basePath}/mediapipe/models/selfie_segmenter.tflite`,
-            delegate: 'CPU'
-        },
-        runningMode: 'VIDEO',
-        outputCategoryMask: false,
-        outputConfidenceMasks: true
-    });
+    const createSegmenter = (delegate: 'GPU' | 'CPU') =>
+        ImageSegmenter.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: `${basePath}/mediapipe/models/selfie_segmenter.tflite`,
+                delegate
+            },
+            runningMode: 'VIDEO',
+            outputCategoryMask: false,
+            outputConfidenceMasks: true
+        });
+
+    // GPU is markedly faster to initialise and per-frame than CPU; fall back to
+    // CPU where WebGL/GPU delegation is unavailable.
+    let segmenter: ImageSegmenter;
+    try {
+        segmenter = await createSegmenter('GPU');
+    } catch {
+        segmenter = await createSegmenter('CPU');
+    }
 
     const video = document.createElement('video');
     video.srcObject = rawStream;
@@ -64,18 +74,23 @@ export async function createBlurProcessor(
     const outputStream = canvas.captureStream(0);
     const canvasTrack = outputStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
 
-    // Pre-allocate offscreen canvases — reused every frame
+    // Pre-allocate offscreen canvases and the mask buffer — reused every frame.
+    // Allocating a fresh ImageData per frame (~1.2MB at 640×480) was ~36MB/s of
+    // garbage; reusing one buffer removes that GC pressure.
     const maskCanvas = new OffscreenCanvas(width, height);
     const maskCtx = maskCanvas.getContext('2d')!;
     const tempCanvas = new OffscreenCanvas(width, height);
     const tempCtx = tempCanvas.getContext('2d')!;
+    const maskImageData = maskCtx.createImageData(width, height);
 
     let currentConfig: BlurConfig = BLUR_CONFIG[intensity];
+    let busy = false;
 
     function handleResult(result: ImageSegmenterResult) {
         const masks = result.confidenceMasks;
         if (!masks || masks.length === 0) {
             result.close();
+            busy = false;
             return;
         }
 
@@ -94,11 +109,10 @@ export async function createBlurProcessor(
 
         // 2. Build soft alpha mask from person confidence (0.0–1.0 → 0–255)
         //    Confidence values already have soft edges at the person boundary.
-        const imageData = maskCtx.createImageData(width, height);
         for (let i = 0; i < confidence.length; i++) {
-            imageData.data[i * 4 + 3] = Math.round(confidence[i] * 255);
+            maskImageData.data[i * 4 + 3] = Math.round(confidence[i] * 255);
         }
-        maskCtx.putImageData(imageData, 0, 0);
+        maskCtx.putImageData(maskImageData, 0, 0);
 
         // 3. Draw sharp frame into temp canvas, then clip to person mask
         tempCtx.clearRect(0, 0, width, height);
@@ -111,12 +125,20 @@ export async function createBlurProcessor(
         ctx.drawImage(tempCanvas, 0, 0);
 
         canvasTrack.requestFrame();
+        busy = false;
     }
 
     function drawFrame() {
-        if (video.readyState < 2) return;
-        // Callback form — required for VIDEO mode; synchronous form may not fire the graph.
-        segmenter.segmentForVideo(video, performance.now(), handleResult);
+        // Skip if the previous segmentation is still in flight — otherwise slow
+        // passes stack up and saturate the CPU/GPU.
+        if (busy || video.readyState < 2) return;
+        busy = true;
+        try {
+            // Callback form — required for VIDEO mode; synchronous form may not fire the graph.
+            segmenter.segmentForVideo(video, performance.now(), handleResult);
+        } catch {
+            busy = false;
+        }
     }
 
     const intervalId = setInterval(drawFrame, 1000 / 30);

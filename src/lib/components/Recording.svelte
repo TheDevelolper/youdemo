@@ -65,14 +65,16 @@
             .catch(() => [] as MediaDeviceInfo[]);
         micDevices = devices.filter((d) => d.kind === 'audioinput');
         camDevices = devices.filter((d) => d.kind === 'videoinput');
+    });
 
+    // Detect the user ending screen share from the browser bar. In a $effect (not
+    // the async onMount) so the listener is reliably torn down on unmount.
+    $effect(() => {
         const track = screenStream?.getVideoTracks()[0];
+        if (!track) return;
         const handleTrackEnded = () => onstreamended();
-        if (track) track.addEventListener('ended', handleTrackEnded);
-
-        return () => {
-            if (track) track.removeEventListener('ended', handleTrackEnded);
-        };
+        track.addEventListener('ended', handleTrackEnded);
+        return () => track.removeEventListener('ended', handleTrackEnded);
     });
 
     onDestroy(() => {
@@ -108,7 +110,7 @@
                     <div {...props} class="flex">
                         <Button
                             variant={micMuted ? 'destructive' : 'outline'}
-                            size="sm"
+                            size="lg"
                             class="rounded-r-none border-r-0"
                             onclick={ontogglemic}
                             aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
@@ -122,7 +124,7 @@
                         <DropdownMenu.Root>
                             <DropdownMenu.Trigger
                                 class={cn(
-                                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                                    buttonVariants({ variant: 'outline', size: 'lg' }),
                                     'rounded-l-none px-2'
                                 )}
                                 aria-label="Select microphone"
@@ -159,7 +161,7 @@
                     <div {...props} class="flex">
                         <Button
                             variant={!camEnabled ? 'destructive' : 'outline'}
-                            size="sm"
+                            size="lg"
                             class="rounded-r-none border-r-0"
                             onclick={ontogglecam}
                             aria-label={camEnabled ? 'Disable camera' : 'Enable camera'}
@@ -173,7 +175,7 @@
                         <DropdownMenu.Root>
                             <DropdownMenu.Trigger
                                 class={cn(
-                                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                                    buttonVariants({ variant: 'outline', size: 'lg' }),
                                     'rounded-l-none px-2'
                                 )}
                                 aria-label="Select camera"
@@ -208,6 +210,7 @@
 
         <Button
             variant="destructive"
+            size="lg"
             onclick={() => {
                 clearInterval(timerInterval);
                 document.title = 'YouDemo';

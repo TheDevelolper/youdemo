@@ -4,29 +4,30 @@ export type BubblePosition = 'tl' | 'tr' | 'bl' | 'br' | 'tc' | 'rc' | 'bc' | 'l
 
 export interface RecorderOptions {
     screenStream: MediaStream;
-    webcamDeviceId: string | null;
+    /** Raw webcam stream acquired upstream (Setup) — reused, never re-acquired here. */
+    webcamStream: MediaStream | null;
     micDeviceId: string | null;
     bubblePosition: BubblePosition;
     micMuted: boolean;
     camEnabled: boolean;
+    /** Blurred webcam output; drawn in preference to the raw stream when present. */
     processedWebcamStream: MediaStream | null;
-}
-
-export interface DeletedRange {
-    startTime: number;
-    endTime: number;
-}
-
-export interface ExportOptions {
-    segments: Blob[];
-    deletedRanges: DeletedRange[];
-    totalDuration: number;
 }
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
-const BUBBLE = 275;
-const PAD = 20;
+// Bubble geometry is expressed as a fraction of frame height so the preview
+// (WebcamBubble.svelte) and the composited recording stay in sync regardless of
+// resolution. These fractions MUST match the ones in WebcamBubble.svelte.
+const BUBBLE_FRAC = 0.18;
+const PAD_FRAC = 0.025;
+
+// Cap the composited canvas so software VP9 encoding stays within a sane CPU
+// budget — uncapped 1440p/4K compositing + encode is the main cause of renderer
+// crashes ("white screen") during recording.
+const MAX_DIM = 1920;
+const VIDEO_BITS_PER_SECOND = 5_000_000;
+const AUDIO_BITS_PER_SECOND = 128_000;
 
 // ─── singleton state ──────────────────────────────────────────────────────────
 
@@ -45,34 +46,41 @@ let _bubblePos: BubblePosition = 'tr';
 let _recordingStartTime = 0;
 let _screenStream: MediaStream | null = null;
 let _userStream: MediaStream | null = null;
-let _frameCount = 0;
-let _lastFpsLog = 0;
 let _canvasCaptureTrack: CanvasCaptureMediaStreamTrack | null = null;
-let _framePushCount = 0;
-let _lastFrameLog = 0;
+// Offscreen canvas the webcam bubble is masked on before being blitted to the
+// main canvas — avoids the partial-coverage seam that `clip()` leaves at the
+// circle edge (visible as straight "borders" once the canvas is resolution-capped).
+let _bubbleCanvas: HTMLCanvasElement | null = null;
+let _bubbleCtx: CanvasRenderingContext2D | null = null;
+let _bubbleMask: CanvasGradient | null = null;
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+function bubbleMetrics(h: number): { bubble: number; pad: number } {
+    return { bubble: h * BUBBLE_FRAC, pad: h * PAD_FRAC };
+}
+
 function bubbleCoords(pos: BubblePosition, w: number, h: number): { x: number; y: number } {
-    const cx = w / 2 - BUBBLE / 2;
-    const cy = h / 2 - BUBBLE / 2;
+    const { bubble, pad } = bubbleMetrics(h);
+    const cx = w / 2 - bubble / 2;
+    const cy = h / 2 - bubble / 2;
     switch (pos) {
         case 'tl':
-            return { x: PAD, y: PAD };
+            return { x: pad, y: pad };
         case 'tr':
-            return { x: w - BUBBLE - PAD, y: PAD };
+            return { x: w - bubble - pad, y: pad };
         case 'bl':
-            return { x: PAD, y: h - BUBBLE - PAD };
+            return { x: pad, y: h - bubble - pad };
         case 'br':
-            return { x: w - BUBBLE - PAD, y: h - BUBBLE - PAD };
+            return { x: w - bubble - pad, y: h - bubble - pad };
         case 'tc':
-            return { x: cx, y: PAD };
+            return { x: cx, y: pad };
         case 'rc':
-            return { x: w - BUBBLE - PAD, y: cy };
+            return { x: w - bubble - pad, y: cy };
         case 'bc':
-            return { x: cx, y: h - BUBBLE - PAD };
+            return { x: cx, y: h - bubble - pad };
         case 'lc':
-            return { x: PAD, y: cy };
+            return { x: pad, y: cy };
     }
 }
 
@@ -86,138 +94,128 @@ function getSupportedMimeType(): string {
     return types.find((t) => MediaRecorder.isTypeSupported(t)) ?? 'video/webm';
 }
 
+/** Scale a source resolution down so its longest edge ≤ MAX_DIM, keeping even dimensions. */
+function cappedDimensions(srcW: number, srcH: number): { width: number; height: number } {
+    const scale = Math.min(1, MAX_DIM / Math.max(srcW, srcH));
+    return {
+        width: Math.max(2, Math.round((srcW * scale) / 2) * 2),
+        height: Math.max(2, Math.round((srcH * scale) / 2) * 2)
+    };
+}
+
+function videoReady(video: HTMLVideoElement): Promise<void> {
+    return new Promise((resolve) => {
+        if (video.readyState >= 2) resolve();
+        else video.addEventListener('canplay', () => resolve(), { once: true });
+    });
+}
+
 function drawFrame(): void {
     if (!_ctx || !_canvas || !_screenVideo) return;
     const w = _canvas.width;
     const h = _canvas.height;
 
-    _frameCount++;
-    const now = Date.now();
-    if (now - _lastFpsLog >= 1000) {
-        console.log('[Recorder] Compositing fps (setInterval):', _frameCount);
-        _frameCount = 0;
-        _lastFpsLog = now;
-    }
-
     if (_screenVideo.readyState >= 2) {
         _ctx.drawImage(_screenVideo, 0, 0, w, h);
     }
 
-    if (_camEnabled && _webcamVideo && _webcamVideo.readyState >= 2) {
-        console.log('[Recorder] Drawing webcam frame — readyState:', _webcamVideo.readyState);
+    if (
+        _camEnabled &&
+        _webcamVideo &&
+        _webcamVideo.readyState >= 2 &&
+        _bubbleCanvas &&
+        _bubbleCtx &&
+        _bubbleMask
+    ) {
+        const d = _bubbleCanvas.width;
         const { x, y } = bubbleCoords(_bubblePos, w, h);
-        _ctx.save();
-        _ctx.beginPath();
-        _ctx.arc(x + BUBBLE / 2, y + BUBBLE / 2, BUBBLE / 2, 0, Math.PI * 2);
-        _ctx.clip();
-        _ctx.drawImage(_webcamVideo, x, y, BUBBLE, BUBBLE);
-        _ctx.restore();
-    } else if (_camEnabled && _webcamVideo) {
-        console.log(
-            '[Recorder] Webcam not ready yet — skipping draw, readyState:',
-            _webcamVideo.readyState
-        );
+        const ix = Math.round(x);
+        const iy = Math.round(y);
+
+        // Centre-crop the webcam frame to a square — matches the preview's object-cover.
+        const vw = _webcamVideo.videoWidth || d;
+        const vh = _webcamVideo.videoHeight || d;
+        const side = Math.min(vw, vh);
+        const sx = (vw - side) / 2;
+        const sy = (vh - side) / 2;
+
+        // Mask the bubble on its own canvas: draw the square, then keep only the
+        // feathered circle via destination-in. The result has a soft alpha edge,
+        // so blitting it onto the main canvas blends cleanly — no clip() seam.
+        const bc = _bubbleCtx;
+        bc.globalCompositeOperation = 'source-over';
+        bc.clearRect(0, 0, d, d);
+        bc.drawImage(_webcamVideo, sx, sy, side, side, 0, 0, d, d);
+        bc.globalCompositeOperation = 'destination-in';
+        bc.fillStyle = _bubbleMask;
+        bc.fillRect(0, 0, d, d);
+        bc.globalCompositeOperation = 'source-over';
+
+        _ctx.drawImage(_bubbleCanvas, ix, iy);
     }
 
     _canvasCaptureTrack?.requestFrame();
-    _framePushCount++;
-    const nowPush = Date.now();
-    if (nowPush - _lastFrameLog >= 1000) {
-        console.log('[Recorder] Frames pushed to stream this second:', _framePushCount);
-        _framePushCount = 0;
-        _lastFrameLog = nowPush;
-    }
 }
 
 function cleanup(): void {
+    // The screen stream is owned by the recorder; the raw webcam stream is owned
+    // upstream (+page) and is intentionally NOT stopped here so it survives a
+    // resume. Only the mic stream acquired below belongs to the recorder.
     if (_screenStream) {
-        _screenStream.getTracks().forEach((track) => {
-            track.stop();
-            console.log('[Recorder] Screen track stopped:', track.kind, track.label);
-        });
+        _screenStream.getTracks().forEach((t) => t.stop());
         _screenStream = null;
     }
     if (_screenVideo) {
         _screenVideo.srcObject = null;
         _screenVideo = null;
     }
-
     if (_userStream) {
-        _userStream.getTracks().forEach((track) => {
-            track.stop();
-            console.log('[Recorder] Webcam/mic track stopped:', track.kind, track.label);
-        });
+        _userStream.getTracks().forEach((t) => t.stop());
         _userStream = null;
     }
     if (_webcamVideo) {
         _webcamVideo.srcObject = null;
         _webcamVideo = null;
     }
-
-    console.log('[Recorder] Closing AudioContext — state was:', _audioCtx?.state);
     _audioCtx?.close();
     _audioCtx = null;
-    console.log('[Recorder] AudioContext closed');
     _micNode = null;
     _destination = null;
     _recorder = null;
     _canvas = null;
     _ctx = null;
     _canvasCaptureTrack = null;
-    console.log('[Recorder] stop() complete — all resources released');
+    _bubbleCanvas = null;
+    _bubbleCtx = null;
+    _bubbleMask = null;
 }
 
 // ─── public API ───────────────────────────────────────────────────────────────
 
 export async function start(options: RecorderOptions): Promise<void> {
-    const {
-        screenStream,
-        webcamDeviceId,
-        micDeviceId,
-        bubblePosition,
-        micMuted,
-        camEnabled,
-        processedWebcamStream
-    } = options;
+    const { screenStream, webcamStream, micDeviceId, bubblePosition, micMuted, camEnabled } =
+        options;
     _camEnabled = camEnabled;
     _bubblePos = bubblePosition;
     _chunks = [];
-
-    // Canvas sized to screen track
-    const track = screenStream.getVideoTracks()[0];
-    const trackSettings = track.getSettings();
-    console.log(
-        '[Recorder] Screen track settings:',
-        trackSettings.width,
-        trackSettings.height,
-        trackSettings.frameRate
-    );
-    _canvas = document.createElement('canvas');
-    _canvas.width = trackSettings.width ?? 1920;
-    _canvas.height = trackSettings.height ?? 1080;
-    _ctx = _canvas.getContext('2d')!;
-    console.log('[Recorder] Canvas dimensions set to:', _canvas.width, _canvas.height);
 
     // Screen video for drawImage
     _screenStream = screenStream;
     _screenVideo = document.createElement('video');
     _screenVideo.srcObject = screenStream;
     _screenVideo.muted = true;
-    _screenVideo.addEventListener('loadedmetadata', () => {
-        if (!_canvas!.width) {
-            _canvas!.width = _screenVideo!.videoWidth;
-            _canvas!.height = _screenVideo!.videoHeight;
-            console.log(
-                '[Recorder] Canvas dimensions from video:',
-                _canvas!.width,
-                _canvas!.height
-            );
-        }
-    });
     await _screenVideo.play();
 
-    // Audio graph
+    // Canvas — dimensions set after the screen video is ready (below).
+    // alpha: false → opaque output, so the recorded WebM has no alpha plane.
+    // VP9-with-alpha crashes ffmpeg.wasm during the multi-segment re-encode, and
+    // the composite is always fully opaque anyway (the screen fills every frame).
+    _canvas = document.createElement('canvas');
+    _ctx = _canvas.getContext('2d', { alpha: false })!;
+
+    // Audio graph: system audio (from the screen stream) + mic, mixed into one track
     _audioCtx = new AudioContext();
+    await _audioCtx.resume().catch(() => {});
     _destination = _audioCtx.createMediaStreamDestination();
 
     const screenAudioTracks = screenStream.getAudioTracks();
@@ -225,106 +223,92 @@ export async function start(options: RecorderOptions): Promise<void> {
         _audioCtx.createMediaStreamSource(new MediaStream(screenAudioTracks)).connect(_destination);
     }
 
-    // Webcam + mic via getUserMedia — always request mic; request webcam only if camEnabled
+    // Webcam video — reuse the stream already acquired upstream. Never open a
+    // second camera capture (wasteful, and some webcams reject a concurrent open).
+    const webcamVideoStream = options.processedWebcamStream ?? webcamStream;
+    if (camEnabled && webcamVideoStream) {
+        _webcamVideo = document.createElement('video');
+        _webcamVideo.srcObject = webcamVideoStream;
+        _webcamVideo.muted = true;
+        _webcamVideo.play().catch(() => {});
+    }
+
+    // Mic audio only — video is reused from upstream above.
     try {
-        const userStream = await navigator.mediaDevices.getUserMedia({
-            video: camEnabled
-                ? webcamDeviceId
-                    ? { deviceId: { ideal: webcamDeviceId } }
-                    : true
-                : false,
+        const micStream = await navigator.mediaDevices.getUserMedia({
+            video: false,
             audio: micDeviceId ? { deviceId: { ideal: micDeviceId } } : true
         });
-        _userStream = userStream;
-
-        const videoTracks = userStream.getVideoTracks();
-        if (camEnabled && (processedWebcamStream || videoTracks.length)) {
-            _webcamVideo = document.createElement('video');
-            _webcamVideo.srcObject = processedWebcamStream ?? new MediaStream(videoTracks);
-            _webcamVideo.muted = true;
-            _webcamVideo.play();
-        }
-
-        const audioTracks = userStream.getAudioTracks();
+        _userStream = micStream;
+        const audioTracks = micStream.getAudioTracks();
         if (audioTracks.length) {
             _micNode = _audioCtx.createMediaStreamSource(new MediaStream(audioTracks));
             if (!micMuted) _micNode.connect(_destination);
         }
     } catch {
-        // silently continue without user media
+        // continue without mic
     }
 
     // Wait for both video elements to be drawable before starting
-    const readyPromises: Promise<void>[] = [
-        new Promise<void>((resolve) => {
-            if (_screenVideo!.readyState >= 2) resolve();
-            else _screenVideo!.addEventListener('canplay', () => resolve(), { once: true });
-        })
-    ];
-    if (_webcamVideo) {
-        readyPromises.push(
-            new Promise<void>((resolve) => {
-                if (_webcamVideo!.readyState >= 2) resolve();
-                else _webcamVideo!.addEventListener('canplay', () => resolve(), { once: true });
-            })
-        );
-    }
+    const readyPromises = [videoReady(_screenVideo)];
+    if (_webcamVideo) readyPromises.push(videoReady(_webcamVideo));
     await Promise.all(readyPromises);
-    console.log('[Recorder] Both video elements ready — starting compositing loop');
+
+    // Size the canvas now that the screen video's intrinsic dimensions are known
+    const { width, height } = cappedDimensions(
+        _screenVideo.videoWidth || 1920,
+        _screenVideo.videoHeight || 1080
+    );
+    _canvas.width = width;
+    _canvas.height = height;
+
+    // Pre-build the bubble's offscreen canvas + feathered circular mask once the
+    // frame height (and therefore bubble diameter) is known.
+    if (camEnabled && _webcamVideo) {
+        const d = Math.max(2, Math.round(height * BUBBLE_FRAC));
+        _bubbleCanvas = document.createElement('canvas');
+        _bubbleCanvas.width = d;
+        _bubbleCanvas.height = d;
+        _bubbleCtx = _bubbleCanvas.getContext('2d')!;
+        const r = d / 2;
+        const feather = Math.max(1, r * 0.03);
+        _bubbleMask = _bubbleCtx.createRadialGradient(r, r, 0, r, r, r);
+        _bubbleMask.addColorStop(0, 'rgba(0,0,0,1)');
+        _bubbleMask.addColorStop(Math.max(0, (r - feather) / r), 'rgba(0,0,0,1)');
+        _bubbleMask.addColorStop(1, 'rgba(0,0,0,0)');
+    }
 
     // Canvas stream + mixed audio → MediaRecorder
     const canvasStream = _canvas.captureStream(0); // 0 = manual frame control
-    console.log('[Recorder] Canvas stream created in manual frame mode');
     _canvasCaptureTrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
-    _framePushCount = 0;
-    _lastFrameLog = Date.now();
     _destination.stream.getAudioTracks().forEach((t) => canvasStream.addTrack(t));
 
-    const mimeType = getSupportedMimeType();
-    console.log('[Recorder] Using mimeType:', mimeType);
     _recorder = new MediaRecorder(canvasStream, {
-        mimeType,
-        videoBitsPerSecond: 8_000_000,
-        audioBitsPerSecond: 128_000
+        mimeType: getSupportedMimeType(),
+        videoBitsPerSecond: VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND
     });
-    console.log(
-        '[Recorder] MediaRecorder created — videoBitsPerSecond:',
-        _recorder.videoBitsPerSecond
-    );
-    console.log(
-        '[Recorder] MediaRecorder created — audioBitsPerSecond:',
-        _recorder.audioBitsPerSecond
-    );
     _recorder.ondataavailable = (e) => {
         if (e.data.size > 0) _chunks.push(e.data);
     };
 
-    _frameCount = 0;
-    _lastFpsLog = Date.now();
     _intervalId = setInterval(drawFrame, 1000 / 30);
-    console.log('[Recorder] Compositing loop started at 30fps via setInterval');
-
     _recorder.start(500);
-    console.log('[Recorder] MediaRecorder started with 500ms timeslice');
     _recordingStartTime = Date.now();
 }
 
 export function stop(): Promise<Blob> {
     const durationMs = Date.now() - _recordingStartTime;
     return new Promise((resolve) => {
-        console.log('[Recorder] stop() called — durationMs:', durationMs);
         if (!_recorder) {
-            console.log('[Recorder] No MediaRecorder — resolving with empty blob');
             resolve(new Blob([], { type: 'video/webm' }));
             return;
         }
-        console.log('[Recorder] Stopping MediaRecorder — state was:', _recorder.state);
         if (_intervalId !== null) {
             clearInterval(_intervalId);
             _intervalId = null;
         }
-        console.log('[Recorder] Compositing interval cleared');
-        // Phase 1: stop stream tracks immediately to release browser sharing indicator
+        // Stop the screen stream immediately to release the browser sharing indicator.
         if (_screenStream) {
             _screenStream.getTracks().forEach((t) => t.stop());
             _screenStream = null;
@@ -333,25 +317,14 @@ export function stop(): Promise<Blob> {
             _userStream.getTracks().forEach((t) => t.stop());
             _userStream = null;
         }
-        console.log('[Recorder] Tracks stopped — sharing indicator released');
         _recorder.onstop = async () => {
-            console.log(
-                '[Recorder] MediaRecorder stopped — building blob from',
-                _chunks.length,
-                'chunks'
-            );
             const blob = new Blob(_chunks, { type: 'video/webm' });
-            console.log('[Recorder] Blob built:', blob.size, 'bytes — fixing WebM duration...');
             const fixedBlob = await fixWebmDuration(blob, durationMs);
-            console.log('[Recorder] Duration fixed — running cleanup()');
             cleanup();
             resolve(fixedBlob);
         };
         if (_recorder.state !== 'inactive') _recorder.stop();
-        else {
-            console.log('[Recorder] MediaRecorder already inactive — triggering onstop manually');
-            _recorder.onstop(new Event('stop'));
-        }
+        else _recorder.onstop(new Event('stop'));
     });
 }
 
