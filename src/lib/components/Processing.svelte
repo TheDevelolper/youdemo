@@ -44,7 +44,7 @@
 
                 // 2. Apply cuts by re-rendering only the kept ranges.
                 // if (deletedRanges.length > 0) {
-                    status = 'Applying edits…';
+                    status = 'Exporting Video…';
                     progress = 0;
                     source = await renderExportedVideo(source, quality, deletedRanges, (f: number) => {
                         progress = Math.round(f * 100);
