@@ -5,6 +5,7 @@
 
     import { Button } from '$lib/components/ui/button/index.js';
     import type { VideoEncodingQuality } from '$lib/types/quality';
+    import { VIDEO_BPS_OPTIONS } from '$lib/constants/VIDEO_BPS_OPTIONS';
 
     export interface DeletedRange {
         startTime: number;
@@ -485,11 +486,12 @@
         <select
             id="quality"
             bind:value={quality}
-            class="rounded-lg text-black dark:text-black border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-        >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
+            class="rounded-lg border-none outline-none dark:text-white dark:bg-black text-black dark:text-black border border-gray-300 bg-white px-3 py-2 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+
+              {#each Object.entries(VIDEO_BPS_OPTIONS) as [quality]}
+                    <option value={quality}>{quality}</option>
+              {/each}
+
         </select>
         </div>
 
