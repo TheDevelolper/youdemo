@@ -607,12 +607,12 @@ only to the recorder, never the speakers), and `fixWebmDuration` on the result.
 ### Output format
 
 - Output: `.webm`
-- Filename: `yourdemo-YYYY-MM-DD.webm`
+- Filename: `youdemo-YYYY-MM-DD.webm`
 
 ## Section 10 — Done.svelte
 
 - Download auto-triggers on arrival
-- Filename: `yourdemo-YYYY-MM-DD.webm`
+- Filename: `youdemo-YYYY-MM-DD.webm`
 - New Recording → full reset
 - Back to Editor → editor
 
