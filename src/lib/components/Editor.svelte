@@ -498,7 +498,7 @@
         <Button
             class="bg-indigo-500 text-white hover:bg-indigo-600"
             onclick={() => onexport(quality, deletedRanges, videoDuration)}
-            size="lg">Export & Download</Button>
+            size="lg">Download</Button>
     </div>
 </div>
 
