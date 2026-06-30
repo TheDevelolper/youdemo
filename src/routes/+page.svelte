@@ -49,6 +49,7 @@
         | 'done';
 
     let appState = $state<AppState>('check');
+    let quality = $state<VideoEncodingQuality>('high');
 
     // Streams & blobs
     let screenStream = $state<MediaStream | null>(null);
@@ -270,9 +271,10 @@
         appState = 'review';
     }
 
-    function handleExport(quality: VideoEncodingQuality = 'high', deletedRanges: DeletedRange[]) {
+    function handleExport(videoQuality: VideoEncodingQuality = 'high', deletedRanges: DeletedRange[]) {
         exportDeletedRanges = deletedRanges;
         appState = 'processing';
+        quality = videoQuality
     }
 
     function handleProcessingDone(blob: Blob) {
@@ -366,7 +368,7 @@
             <Editor videoUrl={editorVideoUrl} onback={backToReview} onexport={handleExport} />
         {:else if appState === 'processing'}
             <Processing
-                quality="low"
+                quality={quality}
                 segments={editorBlob ? [editorBlob] : segments}
                 deletedRanges={exportDeletedRanges}
                 oncomplete={handleProcessingDone}
