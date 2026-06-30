@@ -52,10 +52,12 @@ export async function stitchSegments(
     const frameTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
     dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
 
+    //! Note(Kiran): As this is the first parse we don't want to compress (so high quality). 
+    // * Currently doing 2 parses eventually we should try to reduce to a single parse: complexity n(2) => n(1)
     const recorder = new MediaRecorder(stream, {
         mimeType: pickMimeType(),
-        videoBitsPerSecond: VIDEO_BPS_OPTIONS[quality],
-        audioBitsPerSecond: AUDIO_BPS_OPTIONS[quality]
+        videoBitsPerSecond: VIDEO_BPS_OPTIONS['high'], 
+        audioBitsPerSecond: AUDIO_BPS_OPTIONS['high'],
     });
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (e) => {
