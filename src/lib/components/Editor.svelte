@@ -44,7 +44,7 @@
     let containerWidth = $state(0);
     let showPlayIcon = $state(false);
     let showPauseIcon = $state(false);
-    let quality: VideoEncodingQuality = 'high';
+    let quality: VideoEncodingQuality = $state('high');
     
     let cellCount = $derived(
         Number.isFinite(videoDuration) && videoDuration > 0
